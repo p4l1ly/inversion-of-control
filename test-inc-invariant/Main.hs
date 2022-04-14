@@ -11,6 +11,7 @@
 -- debug
 -- {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file -dcore-lint -fconstraint-solver-iterations=10 #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
+-- {-# OPTIONS_GHC -fplugin-opt InversionOfControl.TcPlugin:no_getK_singletonDataCon #-}
 
 module Main where
 
