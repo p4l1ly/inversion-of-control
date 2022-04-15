@@ -10,8 +10,9 @@
 module InversionOfControl.TypeDict where
 
 import Data.Functor ((<&>))
+import Data.Kind
 import GHC.TypeLits (Symbol)
-import InversionOfControl.Lift (Inc, K)
+import InversionOfControl.Lift (Inc, K (K), Pean (Zero))
 import Language.Haskell.TH (Exp (AppTypeE, VarE), TyLit (StrTyLit), Type (AppT, ConT, LitT, VarT), lookupTypeName, lookupValueName)
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
 
@@ -21,17 +22,16 @@ data Named x = Name Symbol x
 data TypeDict where
   End :: TypeDict
   (:+:) :: Named x -> TypeDict -> TypeDict
-  LiftTags :: TypeDict -> TypeDict
 infixr 1 :+:
 
 type family GetK (sym :: Symbol) (dict :: TypeDict) :: K where
-  GetK sym (LiftTags rest) = Inc (GetK sym rest)
-  GetK sym (Name sym val :+: rest) = val
-  GetK sym (_ :+: rest) = GetK sym rest
 
-type family Get (sym :: Symbol) (dict :: TypeDict) :: k where
+type family LiftTags (dict :: TypeDict) :: TypeDict where
+
+type family ToConstraint (dict :: TypeDict) :: Constraint where
+
+type family Get (sym :: Symbol) (dict :: TypeDict) :: k where -- TODO doesn't work through LiftTags, need to include into TcPlugin
   Get sym End = NotFound sym
-  Get sym (LiftTags rest) = Get sym rest
   Get sym (Name sym val :+: rest) = val
   Get sym (_ :+: rest) = Get sym rest
 
