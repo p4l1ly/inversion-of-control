@@ -3,6 +3,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -23,6 +24,7 @@ import GHC.Core.TyCo.Rep
 import GHC.Core.TyCon (TyCon)
 import GHC.Core.Type
 import GHC.Data.FastString (fsLit)
+import GHC.Driver.Config.Finder (initFinderOpts)
 import GHC.Driver.Plugins (Plugin (..), defaultPlugin, purePlugin)
 import GHC.Plugins
 import GHC.Stack
@@ -30,10 +32,9 @@ import GHC.Tc.Plugin
 import GHC.Tc.Types
 import GHC.Tc.Types.Constraint
 import GHC.Tc.Types.Evidence
-import GHC.TcPluginM.Extra
-import qualified GHC.TcPluginM.Extra as TcPluginM
 import GHC.Types.Name.Occurrence (mkDataOcc, mkTcOcc)
 import GHC.Types.Unique.FM
+import qualified GHC.Unit.Finder as Finder
 import GHC.Unit.Module (mkModuleName)
 import GHC.Utils.Outputable (Outputable (..), text, ($$), (<+>))
 
@@ -43,13 +44,12 @@ plugin =
     { tcPlugin = \args -> do
         opts <- foldr id defaultOpts <$> traverse parseArgument args
         return $
-          tracePlugin
-            "inversion-of-control"
-            TcPlugin
-              { tcPluginInit = lookupExtraDefs
-              , tcPluginSolve = solve opts
-              , tcPluginStop = const (return ())
-              }
+          TcPlugin
+            { tcPluginInit = lookupExtraDefs
+            , tcPluginSolve = solve opts
+            , tcPluginRewrite = \_ -> emptyUFM
+            , tcPluginStop = const (return ())
+            }
     , pluginRecompile = purePlugin
     }
   where
@@ -75,29 +75,42 @@ data ExtraDefs = ExtraDefs
   , typedictTyCon :: TyCon
   }
 
+lookupModule :: ModuleName -> FastString -> TcPluginM Module
+lookupModule mod_nm _pkg = do
+  hsc_env <- getTopEnv
+  found_module <- tcPluginIO $ do
+    Finder.findPluginModule (hsc_FC hsc_env) (initFinderOpts $ hsc_dflags hsc_env) (hsc_units hsc_env) (hsc_home_unit_maybe hsc_env) mod_nm
+  case found_module of
+    Found _ h -> return h
+    _ -> error "foo"
+
 lookupExtraDefs :: TcPluginM ExtraDefs
 lookupExtraDefs = do
   tcPluginTrace "---Plugin init---" (ppr ())
   liftModule <- lookupModule (mkModuleName "InversionOfControl.Lift") (fsLit "inversion-of-control")
   typeDictModule <- lookupModule (mkModuleName "InversionOfControl.TypeDict") (fsLit "inversion-of-control")
 
-  getkFam <- tcLookupTyCon =<< lookupName typeDictModule (mkTcOcc "GetK")
-  getFam <- tcLookupTyCon =<< lookupName typeDictModule (mkTcOcc "Get")
-  incFam <- tcLookupTyCon =<< lookupName liftModule (mkTcOcc "Inc")
-  kTyCon <- tcLookupTyCon =<< lookupName liftModule (mkTcOcc "K")
-  kDataCon <- tcLookupDataCon =<< lookupName liftModule (mkDataOcc "K")
-  peanTyCon <- tcLookupTyCon =<< lookupName liftModule (mkTcOcc "Pean")
-  zeroDataCon <- tcLookupDataCon =<< lookupName liftModule (mkDataOcc "Zero")
-  dConsDataCon <- tcLookupDataCon =<< lookupName typeDictModule (mkDataOcc ":+:")
-  dEndDataCon <- tcLookupDataCon =<< lookupName typeDictModule (mkDataOcc "End")
-  dLiftFam <- tcLookupTyCon =<< lookupName typeDictModule (mkTcOcc "LiftTags")
-  dNotFoundTyCon <- tcLookupTyCon =<< lookupName typeDictModule (mkTcOcc "NotFound")
-  dToConstraintFam <- tcLookupTyCon =<< lookupName typeDictModule (mkTcOcc "ToConstraint")
-  typedictTyCon <- tcLookupTyCon =<< lookupName typeDictModule (mkTcOcc "TypeDict")
+  getkFam <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "GetK")
+  getFam <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Get")
+  incFam <- tcLookupTyCon =<< lookupOrig liftModule (mkTcOcc "Inc")
+  kTyCon <- tcLookupTyCon =<< lookupOrig liftModule (mkTcOcc "K")
+  kDataCon <- tcLookupDataCon =<< lookupOrig liftModule (mkDataOcc "K")
+  peanTyCon <- tcLookupTyCon =<< lookupOrig liftModule (mkTcOcc "Pean")
+  zeroDataCon <- tcLookupDataCon =<< lookupOrig liftModule (mkDataOcc "Zero")
+  dConsDataCon <- tcLookupDataCon =<< lookupOrig typeDictModule (mkDataOcc ":+:")
+  dEndDataCon <- tcLookupDataCon =<< lookupOrig typeDictModule (mkDataOcc "End")
+  dLiftFam <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "LiftTags")
+  dNotFoundTyCon <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "NotFound")
+  dToConstraintFam <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "ToConstraint")
+  typedictTyCon <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "TypeDict")
   return ExtraDefs{..}
 
-solve :: Opts -> ExtraDefs -> [Ct] -> [Ct] -> [Ct] -> TcPluginM TcPluginResult
-solve Opts{..} ExtraDefs{..} givens deriveds wanteds = do
+mkVarSubst :: Ct -> Maybe (TcTyVar, Type)
+mkVarSubst ct@(CEqCan{..}) | TyVarLHS tyvar <- cc_lhs = Just (tyvar, cc_rhs)
+mkVarSubst _ = Nothing
+
+solve :: Opts -> ExtraDefs -> EvBindsVar -> [Ct] -> [Ct] -> TcPluginM TcPluginSolveResult
+solve Opts{..} ExtraDefs{..} evBindsVar givens wanteds = do
   let endTyCon = promoteDataCon dEndDataCon
   let consTyCon = promoteDataCon dConsDataCon
   let kPromTyCon = promoteDataCon kDataCon
@@ -105,8 +118,7 @@ solve Opts{..} ExtraDefs{..} givens deriveds wanteds = do
   let isK t = case tyConAppTyCon_maybe t of
         Nothing -> False
         Just tHead -> eqType (mkTyConTy tHead) (mkTyConTy (promoteDataCon kDataCon))
-  let subst = map fst $ mkSubst' $ givens ++ deriveds
-  let substUFM = listToUFM $ map fst $ catMaybes $ GHC.TcPluginM.Extra.mkSubst <$> givens ++ deriveds
+  let substUFM = listToUFM $ catMaybes $ mkVarSubst <$> givens
   let tryFollow stucked x' deCon fn = rec x'
         where
           rec x' =
@@ -191,8 +203,8 @@ solve Opts{..} ExtraDefs{..} givens deriveds wanteds = do
                     [c] -> return $ Just c
                     _ -> do
                       let arity = length constrs
-                      cTupleTyCon <- tcLookupTyCon (cTupleTyConName arity)
-                      return $ Just $ mkTyConApp cTupleTyCon constrs
+                      tcPluginTrace "---Plugin tuple---" $ ppr arity
+                      return $ Just $ mkTyConApp (cTupleTyCon arity) constrs
                 Nothing -> return Nothing
           | otherwise -> mtraverseType (reduce False) t
 
@@ -208,8 +220,8 @@ solve Opts{..} ExtraDefs{..} givens deriveds wanteds = do
 
   tcPluginTrace "---Plugin givens---" $ ppr ()
   givens' <- mapM reduceCt givens
-  tcPluginTrace "---Plugin deriveds---" $ ppr ()
-  deriveds' <- mapM reduceCt deriveds
+  -- tcPluginTrace "---Plugin deriveds---" $ ppr ()
+  -- deriveds' <- mapM reduceCt deriveds
   tcPluginTrace "---Plugin wanteds---" $ ppr ()
   wanteds' <- mapM reduceCt wanteds
 
@@ -217,33 +229,37 @@ solve Opts{..} ExtraDefs{..} givens deriveds wanteds = do
   newGivens <- for (zip givens' givens) \case
     (Nothing, _) -> return Nothing
     (Just pred, ct) ->
-      let ev = evCast (ctEvExpr $ ctEvidence ct) $ pluginCo (ctPred ct) pred
-       in Just . mkNonCanonical <$> GHC.TcPluginM.Extra.newGiven (ctLoc ct) pred ev
-  newDeriveds <- for (zip deriveds' deriveds) \case
-    (Nothing, _) -> return Nothing
-    (Just pred, ct) -> Just . mkNonCanonical <$> GHC.TcPluginM.Extra.newDerived (ctLoc ct) pred
+      let EvExpr ev = evCast (ctEvExpr $ ctEvidence ct) $ pluginCo (ctPred ct) pred
+       in Just . mkNonCanonical <$> newGiven evBindsVar (ctLoc ct) pred ev
+  -- newDeriveds <- for (zip deriveds' deriveds) \case
+  --   (Nothing, _) -> return Nothing
+  --   (Just pred, ct) -> Just . mkNonCanonical <$> GHC.TcPluginM.Extra.newDerived (ctLoc ct) pred
   newWanteds <- for (zip wanteds' wanteds) \case
     (Nothing, _) -> return Nothing
     (Just pred, ct) -> do
-      ev <- GHC.TcPluginM.Extra.newWanted (ctLoc ct) pred
+      ev <- GHC.Tc.Plugin.newWanted (ctLoc ct) pred
       return $ Just (mkNonCanonical ev)
 
   let substEvidence ct ct' = evCast (ctEvExpr $ ctEvidence ct') $ pluginCo (ctPred ct') (ctPred ct)
   let removedGivens = [(substEvidence ct ct', ct) | (Just ct', ct) <- zip newGivens givens]
-  let removedDeriveds = [(evByFiat "myplugin" (ctPred ct') (ctPred ct), ct) | (Just ct', ct) <- zip newDeriveds deriveds]
+  -- let removedDeriveds = [(evByFiat "myplugin" (ctPred ct') (ctPred ct), ct) | (Just ct', ct) <- zip newDeriveds deriveds]
   let removedWanteds = [(substEvidence ct ct', ct) | (Just ct', ct) <- zip newWanteds wanteds]
 
-  tcPluginTrace "---Plugin solve---" $ ppr givens $$ ppr deriveds $$ ppr wanteds
+  tcPluginTrace "---Plugin solve---" $ ppr givens $$ ppr wanteds
   tcPluginTrace "---Plugin newGivens---" $ ppr newGivens
-  tcPluginTrace "---Plugin newDeriveds---" $ ppr $ catMaybes newDeriveds
+  -- tcPluginTrace "---Plugin newDeriveds---" $ ppr $ catMaybes newDeriveds
   tcPluginTrace "---Plugin newWanteds---" $ ppr $ catMaybes newWanteds
   tcPluginTrace "---Plugin removedGivens---" $ ppr removedGivens
-  tcPluginTrace "---Plugin removedDeriveds---" $ ppr removedDeriveds
+  -- tcPluginTrace "---Plugin removedDeriveds---" $ ppr removedDeriveds
   tcPluginTrace "---Plugin removedWanteds---" $ ppr removedWanteds
+  -- return $
+  --   TcPluginOk
+  --     (removedGivens ++ removedDeriveds ++ removedWanteds)
+  --     (catMaybes $ newGivens ++ newDeriveds ++ newWanteds)
   return $
     TcPluginOk
-      (removedGivens ++ removedDeriveds ++ removedWanteds)
-      (catMaybes $ newGivens ++ newDeriveds ++ newWanteds)
+      (removedGivens ++ removedWanteds)
+      (catMaybes $ newGivens ++ newWanteds)
 
 mtraverseType :: Applicative m => (Type -> m (Maybe Type)) -> Type -> m (Maybe Type)
 mtraverseType fn = \case
