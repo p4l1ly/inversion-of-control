@@ -3,44 +3,64 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module InversionOfControl.TcPlugin where
 
-import Control.Arrow ((>>>))
-import Control.Monad (unless)
-import Data.Functor ((<&>))
-import Data.Kind
+import Debug.Trace
+import Control.Applicative (Alternative ((<|>)))
+import Control.Monad (guard)
+import Data.Functor
 import qualified Data.Map as M
-import Data.Maybe (isNothing, maybeToList)
-import qualified Data.Set as S
+import Data.Maybe
 import Data.Traversable (for)
 import GHC.Builtin.Types
-import GHC.Generics (Generic)
+import GHC.Core.Coercion
+import GHC.Core.DataCon (DataCon, promoteDataCon)
+import GHC.Core.Predicate
+import GHC.Core.TyCo.Rep
+import GHC.Core.TyCon (TyCon)
+import GHC.Core.Type
+import GHC.Data.FastString (fsLit)
+import GHC.Driver.Config.Finder (initFinderOpts)
+import GHC.Driver.Plugins (Plugin (..), defaultPlugin, purePlugin)
 import GHC.Plugins
-import GHC.TcPlugin.API
-import qualified GHC.TcPluginM.Extra as E
+import GHC.Stack
+import GHC.Tc.Plugin
+import GHC.Tc.Types
+import GHC.Tc.Types.Constraint
+import GHC.Tc.Types.Evidence
+import GHC.Types.Name.Occurrence (mkDataOcc, mkTcOcc)
+import GHC.Types.Unique.Set
+import qualified GHC.Unit.Finder as Finder
+import GHC.Unit.Module (mkModuleName)
+import GHC.Utils.Outputable (Outputable (..), text, ($$), (<+>))
 
-plugin :: GHC.Plugins.Plugin
+plugin :: Plugin
 plugin =
-  GHC.Plugins.defaultPlugin
-    { GHC.Plugins.tcPlugin =
-        Just . GHC.TcPlugin.API.mkTcPlugin . myTcPlugin
-    , GHC.Plugins.pluginRecompile = GHC.Plugins.purePlugin
+  defaultPlugin
+    { tcPlugin = \args -> do
+        opts <- foldr id defaultOpts <$> traverse parseArgument args
+        return $
+          TcPlugin
+            { tcPluginInit = lookupExtraDefs
+            , tcPluginSolve = solve opts
+            , tcPluginRewrite = \_ -> emptyUFM
+            , tcPluginStop = const (return ())
+            }
+    , pluginRecompile = purePlugin
     }
+  where
+    parseArgument "no_getK_singletonDataCon" = Just (\opts -> opts{getK_singletonDataCon = False})
+    parseArgument _ = Nothing
+    defaultOpts = Opts{getK_singletonDataCon = True}
 
-myTcPlugin :: [CommandLineOption] -> GHC.TcPlugin.API.TcPlugin
-myTcPlugin args =
-  TcPlugin
-    { tcPluginInit = myTcPluginInit
-    , tcPluginSolve = myTcPluginSolve ("no_getK_singletonDataCon" `elem` args)
-    , tcPluginRewrite = myTcPluginRewrite
-    , tcPluginStop = myTcPluginStop
-    }
+data Opts = Opts {getK_singletonDataCon :: Bool}
 
-data Env = Env
+data ExtraDefs = ExtraDefs
   { getkFam :: TyCon
   , getFam :: TyCon
   , incFam :: TyCon
@@ -50,28 +70,26 @@ data Env = Env
   , zeroDataCon :: DataCon
   , dConsDataCon :: DataCon
   , dEndDataCon :: DataCon
-  , dLiftDataCon :: DataCon
-  , dNotFoundTyCon :: TyCon
-  , dNameDataCon :: DataCon
+  , dLiftFam :: TyCon
+  , dToConstraintFam :: TyCon
+  , typedictTyCon :: TyCon
+  , dRemoveFam :: TyCon
   }
 
-myTcPluginStop :: Env -> TcPluginM 'Stop ()
-myTcPluginStop _ = return ()
+lookupModule :: ModuleName -> FastString -> TcPluginM Module
+lookupModule mod_nm _pkg = do
+  hsc_env <- getTopEnv
+  found_module <- tcPluginIO $ do
+    Finder.findPluginModule (hsc_FC hsc_env) (initFinderOpts $ hsc_dflags hsc_env) (hsc_units hsc_env) (hsc_home_unit_maybe hsc_env) mod_nm
+  case found_module of
+    Found _ h -> return h
+    _ -> error "foo"
 
-findModule :: String -> String -> TcPluginM Init Module
-findModule package name =
-  findImportedModule
-    (mkModuleName name)
-    (Just $ fsLit package)
-    <&> \case
-      Found _ m -> m
-      _ -> error $ "InversionOfControl.TcPlugin couldn't find " ++ name
-
-myTcPluginInit :: TcPluginM Init Env
-myTcPluginInit = do
+lookupExtraDefs :: TcPluginM ExtraDefs
+lookupExtraDefs = do
   tcPluginTrace "---Plugin init---" (ppr ())
-  liftModule <- findModule "inversion-of-control" "InversionOfControl.Lift"
-  typeDictModule <- findModule "inversion-of-control" "InversionOfControl.TypeDict"
+  liftModule <- lookupModule (mkModuleName "InversionOfControl.Lift") (fsLit "inversion-of-control")
+  typeDictModule <- lookupModule (mkModuleName "InversionOfControl.TypeDict") (fsLit "inversion-of-control")
 
   getkFam <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "GetK")
   getFam <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Get")
@@ -82,196 +100,247 @@ myTcPluginInit = do
   zeroDataCon <- tcLookupDataCon =<< lookupOrig liftModule (mkDataOcc "Zero")
   dConsDataCon <- tcLookupDataCon =<< lookupOrig typeDictModule (mkDataOcc ":+:")
   dEndDataCon <- tcLookupDataCon =<< lookupOrig typeDictModule (mkDataOcc "End")
-  dLiftDataCon <- tcLookupDataCon =<< lookupOrig typeDictModule (mkDataOcc "LiftTags")
-  dNotFoundTyCon <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "NotFound")
-  dNameDataCon <- tcLookupDataCon =<< lookupOrig typeDictModule (mkDataOcc "Name")
-  return Env{..}
+  dLiftFam <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "LiftTags")
+  dToConstraintFam <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "ToConstraint")
+  typedictTyCon <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "TypeDict")
+  dRemoveFam <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Remove")
+  return ExtraDefs{..}
 
-myTcPluginSolve :: Bool -> Env -> TcPluginSolver
-myTcPluginSolve no_getK_singletonDataCon Env{getkFam, kDataCon, peanTyCon} givens wanteds = do
-  if null wanteds && not no_getK_singletonDataCon
-    then do
-      let aliases = do
-            ct <- givens
-            case classifyPredType $ ctPred ct of
-              EqPred NomEq a b ->
-                case tyConAppTyCon_maybe a of
-                  Nothing ->
-                    case tyConAppTyCon_maybe b of
-                      Nothing -> []
-                      Just tycon
-                        | eqType (mkTyConTy tycon) (mkTyConTy getkFam) -> [(ct, a)]
-                        | otherwise -> []
-                  Just tycon
-                    | eqType (mkTyConTy tycon) (mkTyConTy getkFam) -> [(ct, b)]
-                    | otherwise -> []
-              _ -> []
-      let isK t = case tyConAppTyCon_maybe t of
-            Nothing -> False
-            Just tHead -> eqType (mkTyConTy tHead) (mkTyConTy (promoteDataCon kDataCon))
-      let kAliases = do
-            (ctPred >>> classifyPredType -> EqPred NomEq a b) <- givens
-            if isK a
-              then [b]
-              else [a | isK b]
-      let kVarAliases = S.fromList do
-            alias <- kAliases
-            case getTyVar_maybe alias of
-              Just var -> [var]
-              Nothing -> []
-      let kOtherAliases = filter (isNothing . getTyVar_maybe) kAliases
-      let reductionExists alias = case getTyVar_maybe alias of
-            Just var -> var `S.member` kVarAliases
-            Nothing -> any (eqType alias) kOtherAliases
-      let unreducedAliases = filter (not . reductionExists . snd) aliases
-      givens' <- for unreducedAliases \(ct, alias) -> do
-        varN <- newFlexiTyVar (mkTyConTy peanTyCon)
-        varX <- newFlexiTyVar GHC.Builtin.Types.liftedTypeKind
-        let k = mkTyConApp (promoteDataCon kDataCon) [mkTyVarTy varN, mkTyVarTy varX]
-        let coercion = mkPluginUnivCo "getk_returns_k" Nominal alias k
-        let EvExpr evidence = evCoercion coercion
-        newGiven (bumpCtLocDepth $ ctLoc ct) (mkPrimEqPredRole Nominal alias k) evidence
-      if null givens'
-        then do
-          tcPluginTrace "---Plugin tryapply---" (ppr givens)
-        else do
-          tcPluginTrace "---Plugin apply---" (ppr givens')
-      pure $ TcPluginOk [] (map mkNonCanonical givens')
-    else pure $ TcPluginOk [] []
+mkVarSubst :: Ct -> Maybe (TcTyVar, Type)
+mkVarSubst ct@(CEqCan{..}) | TyVarLHS tyvar <- cc_lhs = Just (tyvar, cc_rhs)
+mkVarSubst _ = Nothing
+
+solve :: Opts -> ExtraDefs -> EvBindsVar -> [Ct] -> [Ct] -> TcPluginM TcPluginSolveResult
+solve Opts{..} ExtraDefs{..} evBindsVar givens wanteds = do
+  let endTyCon = promoteDataCon dEndDataCon
+  let consTyCon = promoteDataCon dConsDataCon
+  let kPromTyCon = promoteDataCon kDataCon
+  let zeroTyCon = promoteDataCon zeroDataCon
+  let isK t = case tyConAppTyCon_maybe t of
+        Nothing -> False
+        Just tHead -> eqType (mkTyConTy tHead) (mkTyConTy (promoteDataCon kDataCon))
+  let substUFM = listToUFM $ catMaybes $ mkVarSubst <$> givens
+  let tryFollow stucked x' deCon fn = rec x'
+        where
+          rec x' =
+            case deCon x' of
+              Just x'' -> fn x''
+              Nothing -> case getTyVar_maybe x' of
+                Just var -> case lookupUFM substUFM var of
+                  Just x'' -> rec x''
+                  Nothing -> stucked
+                Nothing -> stucked
+
+  let reduce :: Bool -> Type -> TcPluginM (Maybe Type)
+      reduce eqK t = case splitTyConApp_maybe t of
+        Nothing -> return Nothing
+        Just (tycon, args)
+          | tycon == getkFam -> do
+              let [sym, d] = args
+              tryFollow (return Nothing) sym isStrLitTy \key -> do
+                let lookupTypeDict :: Bool -> Bool -> Type -> TcPluginM (Maybe Type)
+                    lookupTypeDict top again dRec = tryFollow' dRec splitTyConApp_maybe \case
+                      (tycon, dargs)
+                        | tycon == endTyCon ->
+                            return $ Just $ anyTypeOfKind (mkTyConApp kTyCon [])
+                        | tycon == dLiftFam -> do
+                            let [dRest] = dargs
+                            fmap (mkTyConApp incFam . (:[])) <$> lookupTypeDict False True dRest
+                        | tycon == consTyCon ->
+                            let kind : named : dRest : kindArgs = dargs
+                             in tryFollow' named splitTyConApp_maybe \(_, (_ : sym' : value : _)) ->
+                                  tryFollow' sym' isStrLitTy \case
+                                    key'
+                                      | key == key' ->
+                                          tryFollow' kind tyConAppTyCon_maybe \case
+                                            kindTyCon
+                                              | kindTyCon == kTyCon -> return $ Just value
+                                              | otherwise -> error "GetK: expected K kind"
+                                      | otherwise -> lookupTypeDict False True dRest
+                        | again ->
+                            reduce False dRec >>= \case
+                              Nothing -> return Nothing
+                              Just dRec' -> lookupTypeDict top False dRec'
+                        | otherwise -> return Nothing
+                      where
+                        tryFollow' =
+                          tryFollow if top
+                            then return Nothing
+                            else return $ Just (mkTyConApp getkFam [sym, dRec])
+                lookupTypeDict True True d >>= \case
+                  Nothing -> return Nothing
+                  Just dsub -> do
+                    dsub' <- reduce False dsub
+                    tcPluginTrace "---Plugin dsub---" $ ppr sym $$ ppr d $$ ppr dsub $$ ppr dsub'
+                    -- TODO unless eqK, replace with K n t and create eqK
+                    return $ dsub' <|> Just dsub
+          | tycon == getFam -> do
+              let kind0 : sym : d : kind0Args = args
+              tryFollow (return Nothing) sym isStrLitTy \key -> do
+                let lookupTypeDict :: Bool -> Bool -> Type -> TcPluginM (Maybe Type)
+                    lookupTypeDict top again dRec = tryFollow' dRec splitTyConApp_maybe \case
+                      (tycon, dargs)
+                        | tycon == endTyCon ->
+                            return $ Just $ mkAppTys (anyTypeOfKind kind0) kind0Args
+                        | tycon == dLiftFam ->
+                            let [dRest] = dargs
+                             in lookupTypeDict False True dRest
+                        | tycon == consTyCon ->
+                            let kind : named : dRest : kindArgs = dargs
+                             in tryFollow' named splitTyConApp_maybe \(_, (kind1 : sym' : value : kind1Args)) ->
+                                  tryFollow' sym' isStrLitTy \case
+                                    key'
+                                      | key == key' -> return $ Just $ mkAppTys value kind0Args
+                                      | otherwise -> lookupTypeDict False True dRest
+                        | again ->
+                            reduce False dRec >>= \case
+                              Nothing -> return Nothing
+                              Just dRec' -> lookupTypeDict top False dRec'
+                        | otherwise -> return Nothing
+                      where
+                        tryFollow' =
+                          tryFollow if top
+                            then return Nothing
+                            else return $ Just (mkTyConApp getFam (kind0 : sym : dRec : kind0Args))
+                lookupTypeDict True True d >>= \case
+                  Nothing -> return Nothing
+                  Just dsub -> do
+                    dsub' <- reduce False dsub
+                    tcPluginTrace "---Plugin dsub2---" $ ppr sym $$ ppr d $$ ppr dsub $$ ppr dsub'
+                    return $ dsub' <|> Just dsub
+          | tycon == dToConstraintFam -> do
+              tcPluginTrace "---Plugin toConstraint---" $ ppr t
+              let descend :: [Type] -> Type -> UniqSet FastString -> TcPluginM (Maybe [Type])
+                  descend result dRec removed = tryFollow' dRec splitTyConApp_maybe \case
+                    (tycon, dargs)
+                      | tycon == endTyCon -> return $ Just result
+                      | tycon == consTyCon ->
+                          let [_, named, dRest] = dargs
+                           in tryFollow' named splitTyConApp_maybe \case
+                                (_, [kind, name, value]) ->
+                                  tryFollow' name isStrLitTy \name' -> case () of
+                                    _ | name' `elementOfUniqSet` removed ->
+                                          descend result dRest removed
+                                      | tcIsConstraintKind kind ->
+                                          reduce False value >>= \case
+                                            Nothing -> descend (value : result) dRest removed
+                                            Just value' -> descend (value' : result) dRest removed
+                                      | otherwise ->
+                                          tryFollow' kind tyConAppTyCon_maybe \case
+                                            kindTyCon
+                                              | kindTyCon == typedictTyCon ->
+                                                  descend result value emptyUniqSet >>= \case
+                                                    Nothing -> descend (mkTyConApp dToConstraintFam [value] : result) dRest removed
+                                                    Just result' -> descend result' dRest removed
+                                              | otherwise -> do
+                                                  tcPluginTrace "---Plugin toConstraint Err1---" $ ppr kindTyCon $$ ppr kind $$ ppr name $$ ppr value
+                                                  error "ToConstraint: expected Constraint or TypeDict kind"
+                      | tycon == dRemoveFam -> do
+                          let [name, dRest] = dargs
+                          tryFollow' name isStrLitTy \name' ->
+                            descend result dRest (removed `addOneToUniqSet` name')
+                      | otherwise -> return $ Nothing <|> Nothing
+                    where
+                      tryFollow' = tryFollow case result of
+                        [] -> return Nothing
+                        _ -> return $ Just $ mkTyConApp dToConstraintFam [dRec] : result
+
+              descend [] (head args) emptyUniqSet >>= \case
+                Just constrs -> do
+                  -- trace ("constrs " ++ showPprUnsafe (ppr constrs)) $ return ()
+                  tcPluginTrace "---Plugin toConstraint constrs---" $ ppr args $$ ppr constrs
+                  case constrs of
+                    [c] -> return $ Just c
+                    _ -> do
+                      let arity = length constrs
+                      tcPluginTrace "---Plugin tuple---" $ ppr arity
+                      return $ Just $ mkTyConApp (cTupleTyCon arity) constrs
+                Nothing -> return Nothing
+          | otherwise -> mtraverseType (reduce False) t
+
+  let reduceCt (ctPred -> pred) =
+        case classifyPredType pred of
+          EqPred NomEq t1 t2 -> do
+            r1 <- reduce (isK t2) t1
+            r2 <- reduce (isK t1) t2
+            if isNothing r1 && isNothing r2
+              then return Nothing
+              else return $ Just $ mkPrimEqPred (fromMaybe t1 r1) (fromMaybe t2 r2)
+          _ -> reduce False pred
+
+  tcPluginTrace "---Plugin givens---" $ ppr ()
+  givens' <- mapM reduceCt givens
+  -- tcPluginTrace "---Plugin deriveds---" $ ppr ()
+  -- deriveds' <- mapM reduceCt deriveds
+  tcPluginTrace "---Plugin wanteds---" $ ppr ()
+  wanteds' <- mapM reduceCt wanteds
+
+  let pluginCo = mkUnivCo (PluginProv "myplugin") Representational
+  newGivens <- for (zip givens' givens) \case
+    (Nothing, _) -> return Nothing
+    (Just pred, ct) ->
+      let EvExpr ev = evCast (ctEvExpr $ ctEvidence ct) $ pluginCo (ctPred ct) pred
+       in Just . mkNonCanonical <$> newGiven evBindsVar (ctLoc ct) pred ev
+  -- newDeriveds <- for (zip deriveds' deriveds) \case
+  --   (Nothing, _) -> return Nothing
+  --   (Just pred, ct) -> Just . mkNonCanonical <$> GHC.TcPluginM.Extra.newDerived (ctLoc ct) pred
+  newWanteds <- for (zip wanteds' wanteds) \case
+    (Nothing, _) -> return Nothing
+    (Just pred, ct) -> do
+      ev <- GHC.Tc.Plugin.newWanted (ctLoc ct) pred
+      return $ Just (mkNonCanonical ev)
+
+  let substEvidence ct ct' = evCast (ctEvExpr $ ctEvidence ct') $ pluginCo (ctPred ct') (ctPred ct)
+  let removedGivens = [(substEvidence ct ct', ct) | (Just ct', ct) <- zip newGivens givens]
+  -- let removedDeriveds = [(evByFiat "myplugin" (ctPred ct') (ctPred ct), ct) | (Just ct', ct) <- zip newDeriveds deriveds]
+  let removedWanteds = [(substEvidence ct ct', ct) | (Just ct', ct) <- zip newWanteds wanteds]
+
+  tcPluginTrace "---Plugin solve---" $ ppr givens $$ ppr wanteds
+  tcPluginTrace "---Plugin newGivens---" $ ppr newGivens
+  -- tcPluginTrace "---Plugin newDeriveds---" $ ppr $ catMaybes newDeriveds
+  tcPluginTrace "---Plugin newWanteds---" $ ppr $ catMaybes newWanteds
+  tcPluginTrace "---Plugin removedGivens---" $ ppr removedGivens
+  -- tcPluginTrace "---Plugin removedDeriveds---" $ ppr removedDeriveds
+  tcPluginTrace "---Plugin removedWanteds---" $ ppr removedWanteds
+  -- return $
+  --   TcPluginOk
+  --     (removedGivens ++ removedDeriveds ++ removedWanteds)
+  --     (catMaybes $ newGivens ++ newDeriveds ++ newWanteds)
+  return $
+    TcPluginOk
+      (removedGivens ++ removedWanteds)
+      (catMaybes $ newGivens ++ newWanteds)
+
+mtraverseType :: Applicative m => (Type -> m (Maybe Type)) -> Type -> m (Maybe Type)
+mtraverseType fn = \case
+  t | Just t' <- tcView t -> mtraverseType fn t'
+  tv@(TyVarTy v) -> pure Nothing
+  (AppTy t1 t2) ->
+    ( \r1 r2 ->
+        if isNothing r1 && isNothing r2
+          then Nothing
+          else Just $ AppTy (fromMaybe t1 r1) (fromMaybe t2 r2)
+    )
+      <$> fn t1 <*> fn t2
+  (TyConApp tc args) ->
+    traverse fn args <&> \args' ->
+      if all isNothing args'
+        then Nothing
+        else Just $ TyConApp tc $ zipWith fromMaybe args args'
+  t@(ForAllTy _tv _ty) -> pure Nothing
+  (FunTy k1 k2 t1 t2) ->
+    ( \r1 r2 ->
+        if isNothing r1 && isNothing r2
+          then Nothing
+          else Just $ FunTy k1 k2 (fromMaybe t1 r1) (fromMaybe t2 r2)
+    )
+      <$> fn t1 <*> fn t2
+  l@(LitTy _) -> pure Nothing
+  (CastTy ty co) -> fn ty <&> \case Nothing -> Nothing; Just t -> Just $ CastTy t co
+  co@(CoercionTy _) -> pure Nothing
 
 data TypeDictCon = Cons | End | Lift deriving (Show)
 instance Outputable TypeDictCon where
   ppr End = "End"
   ppr Cons = "Cons"
   ppr Lift = "Lift"
-
-myTcPluginRewrite :: Env -> GHC.TcPlugin.API.UniqFM TyCon TcPluginRewriter
-myTcPluginRewrite
-  Env
-    { getkFam
-    , incFam
-    , dConsDataCon
-    , dEndDataCon
-    , dLiftDataCon
-    , dNotFoundTyCon
-    , dNameDataCon
-    , kTyCon
-    , kDataCon
-    , zeroDataCon
-    } =
-    listToUFM
-      [
-        ( getkFam
-        , \givens args@[sym, d] -> do
-            case isStrLitTy sym of
-              Nothing -> return TcPluginNoRewrite
-              Just symStr -> do
-                let endTyCon = promoteDataCon dEndDataCon
-                let liftTyCon = promoteDataCon dLiftDataCon
-                let consTyCon = promoteDataCon dConsDataCon
-                let nameTyCon = promoteDataCon dNameDataCon
-                let endTy = mkTyConTy endTyCon
-                let liftTy = mkTyConTy liftTyCon
-                let consTy = mkTyConTy consTyCon
-                let dictCon (mkTyConTy -> tyconTy)
-                      | eqType tyconTy endTy = Just End
-                      | eqType tyconTy liftTy = Just Lift
-                      | eqType tyconTy consTy = Just Cons
-                      | otherwise = Nothing
-                let dictOrVar x =
-                      case splitTyConApp_maybe x of
-                        Nothing ->
-                          case getTyVar_maybe x of
-                            Just v -> Just $ Left v
-                            Nothing -> Nothing
-                        Just (con, dargs) -> dictCon con <&> Right . (,dargs)
-                let aliases = M.fromList do
-                      ct <- givens
-                      case classifyPredType $ ctPred ct of
-                        EqPred NomEq a b -> do
-                          a' <- maybeToList $ dictOrVar a
-                          b' <- maybeToList $ dictOrVar b
-                          case (a', b') of
-                            (Left v, Left v') -> [(v, Left v'), (v', Left v)]
-                            (Left v, Right d) -> [(v, Right d)]
-                            (Right d, Left v) -> [(v, Right d)]
-                            _ -> []
-                        _ -> []
-                let dictFromAlias alias = do
-                      alias `M.lookup` aliases >>= \case
-                        Left v -> dictFromAlias v
-                        Right d -> Just d
-                let getDict d =
-                      case splitTyConApp_maybe d of
-                        Nothing -> getTyVar_maybe d >>= dictFromAlias
-                        Just (con, dargs) -> dictCon con <&> (,dargs)
-                let me0 = mkTyConApp getkFam . (sym :) . (: [])
-                let recur me n d =
-                      case getDict d of
-                        Nothing -> do
-                          tcPluginTrace "---Plugin2 rewriteAdvance---" (ppr ())
-                          return advanceRewrite
-                        Just (con, dargs) -> case con of
-                          End -> do
-                            tcPluginTrace "---Plugin2 rewriteEnd---" (ppr ())
-                            let notFound =
-                                  mkTyConApp -- K Zero (NotFound sym)
-                                    (promoteDataCon kDataCon)
-                                    [ mkTyConTy $ promoteDataCon zeroDataCon
-                                    , mkTyConApp dNotFoundTyCon [sym]
-                                    ]
-                            return $
-                              TcPluginRewriteTo
-                                (Reduction (mkPluginUnivCo "notFound" Nominal (me $ mkTyConApp endTyCon []) notFound) notFound)
-                                []
-                          Lift -> do
-                            tcPluginTrace "---Plugin2 rewriteLift---" (ppr ())
-                            recur (\d -> me $ mkTyConApp liftTyCon [d]) (n + 1) (head dargs)
-                          Cons -> do
-                            tcPluginTrace "---Plugin2 rewriteCons---" (ppr ())
-                            let [kind, named, dRest] = dargs
-                            let me' d = me $ mkTyConApp consTyCon [kind, named, d]
-                            if eqType kind (mkTyConTy kTyCon)
-                              then case splitTyConApp_maybe named of
-                                Nothing -> do
-                                  tcPluginTrace "---Plugin2 rewriteAdvanceCons---" (ppr ())
-                                  return advanceRewrite
-                                Just (_, [_, sym', k]) ->
-                                  case isStrLitTy sym' of
-                                    Nothing -> do
-                                      tcPluginTrace "---Plugin2 rewriteAdvanceConsSym---" (ppr ())
-                                      return advanceRewrite
-                                    Just symStr' -> do
-                                      let me' dRest = me $ mkTyConApp consTyCon [kind, mkTyConApp nameTyCon [kind, sym', k], dRest]
-                                      if symStr' == symStr
-                                        then do
-                                          tcPluginTrace "---Plugin2 found---" (ppr ())
-                                          let k' = iterate (mkTyConApp incFam . return) k !! n -- TODO k' could have explicit n, not using Inc
-                                          let coercion = mkPluginUnivCo "typedictFound" Nominal (me' dRest) k'
-                                          return $ TcPluginRewriteTo (Reduction coercion k') []
-                                        else do
-                                          tcPluginTrace "---Plugin2 rewriteNext---" (ppr ())
-                                          recur me' n dRest
-                                Just err -> do
-                                  tcPluginTrace "---Plugin2 error---" (ppr err)
-                                  error "(Name sym x) expected"
-                              else do
-                                tcPluginTrace "---Plugin2 rewriteNextByKind---" (ppr ())
-                                recur me' n dRest
-                      where
-                        advance = mkTyConApp getkFam [sym, d]
-                        advanceRewrite =
-                          TcPluginRewriteTo
-                            (Reduction (mkPluginUnivCo "typedictAdvance" Nominal (me d) advance) advance)
-                            []
-
-                tcPluginTrace "---Plugin2 start---" (ppr sym $$ ppr d $$ ppr givens $$ ppr () $$ ppr (E.flattenGivens givens))
-                case getDict d of
-                  Nothing -> do
-                    tcPluginTrace "---Plugin2 norewrite---" (ppr aliases)
-                    return TcPluginNoRewrite
-                  Just (con, dargs) -> do
-                    tcPluginTrace "---Plugin2 rewrite---" (ppr aliases)
-                    recur me0 0 d
-        )
-      ]

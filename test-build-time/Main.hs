@@ -10,8 +10,8 @@
 -- debug
 -- {-# OPTIONS_GHC -dcore-lint #-}
 -- {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
-{-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin2 #-}
-{-# OPTIONS_GHC -fplugin-opt InversionOfControl.TcPlugin2:no_getK_singletonDataCon #-}
+{-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
+-- {-# OPTIONS_GHC -fplugin-opt InversionOfControl.TcPlugin:no_getK_singletonDataCon #-}
 
 module Main where
 
