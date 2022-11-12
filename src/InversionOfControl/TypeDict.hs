@@ -33,6 +33,12 @@ type family ToConstraint (dict :: TypeDict) :: Constraint where
 
 type family Get (sym :: Symbol) (dict :: TypeDict) :: k where -- TODO doesn't work through LiftTags, need to include into TcPlugin
 
+type family DictDef (d :: *) :: TypeDict
+
+data KArg (k :: Symbol)
+
+type family ToConstraintCached (constrs :: *) (defs :: *) :: Constraint where
+
 d :: QuasiQuoter
 d =
   QuasiQuoter
