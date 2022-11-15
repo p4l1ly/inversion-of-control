@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin2 #-}
 
@@ -23,11 +24,11 @@ type instance DictDef DictC =
     :+: End
 
 type instance DictDef DictD =
-  Name "x" Bool
+  Name "x" Int
     :+: End
 
 main :: IO ()
-main = fun @DictC
+main = fun @DictD
 
-fun :: forall d. ToConstraintCached DictC DictD => IO ()
+fun :: forall d. Scope d (ToConstraintCached DictC) => IO ()
 fun = return ()

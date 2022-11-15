@@ -35,9 +35,11 @@ type family Get (sym :: Symbol) (dict :: TypeDict) :: k where -- TODO doesn't wo
 
 type family DictDef (d :: *) :: TypeDict
 
-data KArg (k :: Symbol)
+type family KArg (key :: Symbol) :: k
 
-type family ToConstraintCached (constrs :: *) (defs :: *) :: Constraint where
+type family ToConstraintCached (constrs :: *) :: Constraint where
+
+type family Scope (scope :: *) (block :: k) :: k where
 
 d :: QuasiQuoter
 d =
