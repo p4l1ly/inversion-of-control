@@ -4,11 +4,10 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
-{-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin2 #-}
+{-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module Main where
 
@@ -17,18 +16,18 @@ import Data.Kind
 import GHC.TypeLits
 
 data DictD
-data DictC
+data DictC (d :: *)
 
-type instance DictDef DictC =
+type instance Definition (DictC d) =
   Name "other" (Num Bool)
     :+: End
 
-type instance DictDef DictD =
+type instance Definition DictD =
   Name "x" Int
     :+: End
 
 main :: IO ()
-main = fun
+main = fun @DictD
 
-fun :: ToConstraintCached DictC => IO ()
+fun :: forall d. ToConstraint (Follow (DictC d)) => IO ()
 fun = return ()
