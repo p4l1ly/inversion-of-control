@@ -20,7 +20,7 @@ data DictD
 data DictC
 
 type instance DictDef DictC =
-  Name "other" (Num (KArg "x"))
+  Name "other" (Num Bool)
     :+: End
 
 type instance DictDef DictD =
@@ -28,7 +28,7 @@ type instance DictDef DictD =
     :+: End
 
 main :: IO ()
-main = fun @DictD
+main = fun
 
-fun :: forall d. Scope d (ToConstraintCached DictC) => IO ()
+fun :: ToConstraintCached DictC => IO ()
 fun = return ()
