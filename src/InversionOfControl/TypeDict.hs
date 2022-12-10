@@ -27,7 +27,7 @@ infixr 1 :+:
 type family ToConstraint (dict :: TypeDict) :: Constraint where
 
 -- TODO Get should accept TypeDict and dereference it only via Follow
-type family Get (sym :: Symbol) (dict :: TypeDict) :: k where
+type family Get (key :: Symbol) (dict :: TypeDict) :: k where
 
 type family Definition (d :: *) :: k
 

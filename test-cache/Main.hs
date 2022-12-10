@@ -15,19 +15,35 @@ import InversionOfControl.TypeDict
 import Data.Kind
 import GHC.TypeLits
 
-data DictD
-data DictC (d :: *)
+data Dict1 (d :: * -> *) :: *
+data Dict2 (d :: *) :: *
+data Dict3 :: *
 
-type instance Definition (DictC d) =
-  Name "other" (Num Bool)
+class Ok (x :: *) where
+
+data A :: *
+data B :: *
+data C :: *
+
+instance Ok A
+instance Ok B
+instance Ok C
+
+type instance Definition (Dict1 d) =
+  Name "xx" (Ok (Get "x" (Follow (d (Dict1 d)))))
+    :+: (Get "cont" (Follow (d Dict3)) :: TypeDict)
+
+type instance Definition (Dict2 d) =
+  Name "x" A
+    :+: Name "cont" (Name "y" (Ok B) :+: Follow d)
     :+: End
 
-type instance Definition DictD =
-  Name "x" Int
+type instance Definition Dict3 =
+  Name "z" (Ok C)
     :+: End
 
 main :: IO ()
-main = fun @DictD
+main = fun @Dict2
 
-fun :: forall d. ToConstraint (Follow (DictC d)) => IO ()
+fun :: forall d. ToConstraint (Follow (Dict1 d)) => IO ()
 fun = return ()
