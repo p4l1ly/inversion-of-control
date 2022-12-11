@@ -233,8 +233,6 @@ solve Opts{..} ExtraDefs{..} evBindsVar givens wanteds = do
 
                 extractDict dict
                 finishDict dict
-                CachedDict{..} <- tcPluginIO $ readIORef cd_mut
-
                 values <- dictValues emptyUniqSet dict
 
                 case values of
@@ -322,7 +320,10 @@ solve Opts{..} ExtraDefs{..} evBindsVar givens wanteds = do
                         | tycon == removeTC -> Just do
                             let [name, rest'] = dargs
                             myTryFollow name $ isStrLitTy >=> \name' -> Just do
-                              let new = old{cd_removedKeys = removed `addOneToUniqSet` name'}
+                              let new = old
+                                    { cd_removedKeys = removed `addOneToUniqSet` name'
+                                    , cd_unextractedDict = rest'
+                                    }
                               tcPluginIO $ writeIORef cd_mut new
                               when (key == name') $ error $ "Get: element removed " ++ showPprUnsafe (ppr key)
                               rec
@@ -399,7 +400,10 @@ solve Opts{..} ExtraDefs{..} evBindsVar givens wanteds = do
                 | tycon == removeTC -> Just do
                     let [name, rest'] = dargs
                     myTryFollow name $ isStrLitTy >=> \name' -> Just do
-                      let new = old{cd_removedKeys = removed `addOneToUniqSet` name'}
+                      let new = old
+                            { cd_removedKeys = removed `addOneToUniqSet` name'
+                            , cd_unextractedDict = rest'
+                            }
                       tcPluginIO $ writeIORef cd_mut new
                       rec
                 | tycon == endTC -> Just do

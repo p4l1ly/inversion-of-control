@@ -19,7 +19,8 @@ module Main where
 import Control.Monad.Identity (IdentityT (runIdentityT))
 import InversionOfControl.Lift (Inc, K (K), Mk, Pean (Zero), Unwrap)
 import InversionOfControl.MonadFn (Explicit, MonadFn (monadfn), Param, Result)
-import InversionOfControl.TypeDict (Get, GetK, Named (Name), TypeDict (End, (:+:)), d, d', LiftTags, ToConstraint, Remove)
+import InversionOfControl.TypeDict
+  (Get, Named (Name), TypeDict (End, (:+:), (:-:)), g, g', ToConstraint)
 import GHC.Types (Constraint)
 
 data Even
@@ -44,30 +45,30 @@ main = do
 
 hardFunction ::
   forall d d' n t.
-  ( d' ~ (Name "k03" [d|k01|] :+: Name "k02" [d|k01|] :+: End)
-  , [d'|k02|] ~ 'K n t  -- TODO remove after plugin fix
+  ( d' ~ (Name "k03" ([g|k01|] :: K) :+: Name "k02" ([g|k01|] :: K) :+: End)
+  , [g'|k02|] ~ 'K n t  -- TODO remove after plugin fix
   , ToConstraint
-      ( Remove "badConstraint"
-          ( Name "foo"
-              ( Get "hey"
-                  ( Get "qux"
-                      ( Name "hou" (Integral ())
-                          :+: Name "qux" (Name "hey" (MonadFn [d'|k02|] IO :: Constraint) :+: End :: TypeDict)
-                          :+: End
-                      )
-                    :: TypeDict
+      ( "badConstraint"
+        :-: Name "foo"
+          ( Get "hey"
+              ( Get "qux"
+                  ( Name "hou" (Integral ())
+                      :+: Name "qux"
+                            (Name "hey" (MonadFn ([g'|k02|] :: K) IO) :+: End)
+                      :+: End
                   )
-                :: Constraint
+                :: TypeDict
               )
-            :+: Name "badConstraint" (Integral String)
-            :+: End
+            :: Constraint
           )
+        :+: Name "badConstraint" (Integral String)
+        :+: End
       )
-  -- , MonadFn [d'|k02|] IO
-  , Int ~ Param (Unwrap [d'|k02|])
-  , Bool ~ Result (Unwrap [d'|k02|])
+  -- , MonadFn [g'|k02|] IO
+  , Int ~ Param (Unwrap ([g'|k02|] :: K))
+  , Bool ~ Result (Unwrap ([g'|k02|] :: K))
   ) =>
   IO Bool
 hardFunction = do
-  monadfn @[d'|k02|] 5
-  runIdentityT $ monadfn @(GetK "k02" (LiftTags d')) 5
+  monadfn @[g'|k02|] 5
+  -- runIdentityT $ monadfn @(Get "k02" (LiftTags d')) 5
