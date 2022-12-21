@@ -24,13 +24,15 @@ class Ok (x :: *) where
 data A :: *
 data B :: *
 data C :: *
+data D :: *
 
 instance Ok A
 instance Ok B
 instance Ok C
 
 type instance Definition (Dict1 d) =
-  Name "xx" (Ok (Get "x" (Follow (d (Dict1 d)))))
+  "bad"
+    :-: Name "xx" (Ok (Get "x" (Follow (d (Dict1 d)))))
     :+: (Get "cont" (Follow (d Dict3)) :: TypeDict)
 
 type instance Definition (Dict2 d) =
@@ -40,6 +42,7 @@ type instance Definition (Dict2 d) =
 
 type instance Definition Dict3 =
   Name "z" (Ok C)
+    :+: Name "bad" (Ok D)
     :+: End
 
 main :: IO ()

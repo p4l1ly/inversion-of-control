@@ -8,19 +8,26 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
--- debug
--- {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
--- {-# OPTIONS_GHC -dcore-lint #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
--- {-# OPTIONS_GHC -fplugin-opt InversionOfControl.TcPlugin:no_getK_singletonDataCon #-}
+-- {-# OPTIONS_GHC -dcore-lint #-}
+-- {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
 
 module Main where
 
+import Control.Monad.Trans
 import Control.Monad.Identity (IdentityT (runIdentityT))
-import InversionOfControl.Lift (Inc, K (K), Mk, Pean (Zero), Unwrap)
+import InversionOfControl.Lift (Inc, K (K), Mk, Pean (Succ, Zero), Unwrap)
 import InversionOfControl.MonadFn (Explicit, MonadFn (monadfn), Param, Result)
 import InversionOfControl.TypeDict
-  (Get, Named (Name), TypeDict (End, (:+:), (:-:)), g, g', ToConstraint)
+  ( Get
+  , Named (Name)
+  , TypeDict (End, (:+:), (:-:))
+  , d, d1
+  , ToConstraint
+  , Definition
+  , Follow
+  )
 import GHC.Types (Constraint)
 
 data Even
@@ -28,47 +35,80 @@ type instance Param Even = Int
 type instance Result Even = Bool
 
 instance MonadFn ( 'K Zero Even) IO where
-  monadfn x = print (even x) >> return (even x)
+  monadfn x = print ("even", x, even x) >> return (even x)
 
 data Odd
 type instance Param Odd = Int
 type instance Result Odd = Bool
 
 instance MonadFn ( 'K Zero Odd) IO where
-  monadfn x = print ("hii", odd x) >> return (odd x)
+  monadfn x = print ("odd", x, odd x) >> return (odd x)
+
+data EvenDict (lifts :: Pean)
+type instance Definition (EvenDict lifts) =
+  Name "k01" ('K lifts Even) :+: End
+
+data OddDict (lifts :: Pean)
+type instance Definition (OddDict lifts) =
+  Name "k01" ('K lifts Odd) :+: End
 
 main :: IO ()
 main = do
-  False <- hardFunction @(Name "k01" ( 'K Zero Even) :+: End)
-  True <- hardFunction @(Name "k01" ( 'K Zero Odd) :+: End)
+  (False, True, True) <- highFn @EvenDict
+  (True, False, False) <- highFn @OddDict
   return ()
 
-hardFunction ::
-  forall d d' n t.
-  ( d' ~ (Name "k03" ([g|k01|] :: K) :+: Name "k02" ([g|k01|] :: K) :+: End)
-  , [g'|k02|] ~ 'K n t  -- TODO remove after plugin fix
-  , ToConstraint
-      ( "badConstraint"
-        :-: Name "foo"
-          ( Get "hey"
-              ( Get "qux"
-                  ( Name "hou" (Integral ())
-                      :+: Name "qux"
-                            (Name "hey" (MonadFn ([g'|k02|] :: K) IO) :+: End)
-                      :+: End
-                  )
-                :: TypeDict
-              )
-            :: Constraint
-          )
-        :+: Name "badConstraint" (Integral String)
-        :+: End
+data HighFnA (d :: *)
+type instance Definition (HighFnA d) =
+  -- Kinds must be specified, otherwise weird things happen
+  -- (including core lint warnings).
+  ( Name "k03" ([d|k01|] :: K)
+    :+: Name "k02" (Get "k03" (Follow (HighFnA d)) :: K)
+    :+: End
+  )
+
+data HighFnI (d :: Pean -> *) (d1 :: *) (m :: * -> *) :: *
+type instance Definition (HighFnI d d1 m) =
+  ( Name "all"
+      ( d1 ~ HighFnA (d Zero)
+      , MonadFn ([d1|k02|] :: K) m
+      , Int ~ Param (Unwrap [d1|k02|])
+      , Bool ~ Result (Unwrap [d1|k02|])
       )
-  -- , MonadFn [g'|k02|] IO
-  , Int ~ Param (Unwrap ([g'|k02|] :: K))
-  , Bool ~ Result (Unwrap ([g'|k02|] :: K))
-  ) =>
-  IO Bool
-hardFunction = do
-  monadfn @[g'|k02|] 5
-  -- runIdentityT $ monadfn @(Get "k02" (LiftTags d')) 5
+      -- Properly written code would also include:
+      --   Follow (LowFnD (d Zero) m)
+      -- But it is logically not a bug to omit it, as LowFnD is implied by
+      -- HighFnD. We omit it here for testing purposes.
+      :+: Follow (LowFnD (d (Succ Zero)) (IdentityT m))
+  )
+
+type HighFnD (d :: Pean -> *) (m :: * -> *) =
+  HighFnI d (HighFnA (d Zero)) m
+
+highFn ::
+  forall d d1 m.
+  ToConstraint (Follow (HighFnI d d1 m)) =>
+  m (Bool, Bool, Bool)
+highFn = do
+  (,,)
+    <$> monadfn @[d1|k02|] 5
+    <*> lowFn @(d Zero)
+    <*> runIdentityT (lowFn @(d (Succ Zero)))
+
+data LowFnI (d :: *) (m :: * -> *) :: *
+type instance Definition (LowFnI d m) =
+  ( Name "all"
+      ( MonadFn [d|k01|] m
+      , Int ~ Param (Unwrap [d|k01|])
+      , Bool ~ Result (Unwrap [d|k01|])
+      )
+      :+: End
+  )
+
+type LowFnD d m = LowFnI d m
+
+lowFn ::
+  forall d m.
+  ToConstraint (Follow (LowFnI d m)) =>
+  m Bool
+lowFn = monadfn @[d|k01|] 6

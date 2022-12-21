@@ -32,28 +32,44 @@ type family Definition (d :: *) :: k
 
 type family Follow :: * -> k
 
-g :: QuasiQuoter
-g =
+-- TODO Let solver know the following rule:
+-- GetK key (d (Succ n)) = Inc (GetK key (d n))
+
+d :: QuasiQuoter
+d =
   QuasiQuoter
     { quoteType = \tag -> do
         d <- lookupTypeName "d"
         case d of
-          Just d -> return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (VarT d)
-          Nothing -> error "g: type d not in scope"
-    , quoteExp = error "g can quote only types"
-    , quoteDec = error "g can quote only types"
-    , quotePat = error "g can quote only types"
+          Just d -> return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d))
+          Nothing -> error "d: type d not in scope"
+    , quoteExp = error "d can quote only types"
+    , quoteDec = error "d can quote only types"
+    , quotePat = error "d can quote only types"
     }
 
-g' :: QuasiQuoter
-g' =
+d1 :: QuasiQuoter
+d1 =
   QuasiQuoter
     { quoteType = \tag -> do
-        d <- lookupTypeName "d'"
+        d <- lookupTypeName "d1"
         case d of
-          Just d -> return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (VarT d)
-          Nothing -> error "g': type d' not in scope"
-    , quoteExp = error "g can quote only types"
-    , quoteDec = error "g can quote only types"
-    , quotePat = error "g can quote only types"
+          Just d -> return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d))
+          Nothing -> error "g: type d1 not in scope"
+    , quoteExp = error "d can quote only types"
+    , quoteDec = error "d can quote only types"
+    , quotePat = error "d can quote only types"
+    }
+
+d2 :: QuasiQuoter
+d2 =
+  QuasiQuoter
+    { quoteType = \tag -> do
+        d <- lookupTypeName "d2"
+        case d of
+          Just d -> return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d))
+          Nothing -> error "g: type d2 not in scope"
+    , quoteExp = error "d can quote only types"
+    , quoteDec = error "d can quote only types"
+    , quotePat = error "d can quote only types"
     }
