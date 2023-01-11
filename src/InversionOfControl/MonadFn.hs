@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -25,13 +26,13 @@ class Monad m => MonadFn (k :: K) (m :: * -> *) where
   monadfn :: Param (Unwrap k) -> m (Result (Unwrap k))
 
 instance
-  (MonadFn ( 'K n k) m, MonadTrans mt, Monad m, Monad (mt m)) =>
-  MonadFn ( 'K (Succ n) k) (mt m)
+  (MonadFn ('K n k) m, MonadTrans mt, Monad m, Monad (mt m)) =>
+  MonadFn ('K (Succ n) k) (mt m)
   where
-  monadfn p1 = lift (monadfn @( 'K n k) p1)
+  monadfn ::
+    (MonadFn ('K n k) m, MonadTrans mt, Monad m, Monad (mt m)) =>
+    Param (Unwrap ('K ('Succ n) k)) ->
+    mt m (Result (Unwrap ('K ('Succ n) k)))
+  monadfn p1 = lift (monadfn @('K n k) p1)
 
 type MonadFn' k a b m = (MonadFn k m, b ~ Result (Unwrap k), a ~ Param (Unwrap k))
-type Ask k a m = MonadFn' k () a m
-
-ask :: forall k a m. (Ask k a m) => m a
-ask = monadfn @k ()

@@ -11,8 +11,7 @@ version:            0.1.0.0
 -- A URL where users can report bugs.
 -- bug-reports:
 
--- The license under which the package is released.
--- license:
+license:            BSD-3-Clause
 author:             Pavol Vargovcik
 maintainer:         pavol.vargovcik@gmail.com
 
@@ -24,24 +23,15 @@ extra-source-files: CHANGELOG.md
 library
   exposed-modules:
     InversionOfControl.TypeDict
-    InversionOfControl.DepDict
     InversionOfControl.Lift
     InversionOfControl.LiftN
     InversionOfControl.MonadFn
-    InversionOfControl.Recur
     InversionOfControl.TcPlugin
 
-  -- Modules included in this library but not exported.
-  -- other-modules:
-
-  -- LANGUAGE extensions used by modules in this package.
-  -- other-extensions:
   build-depends:
     base >=4.17 && <4.18,
-    mtl ^>=2.2.2,
+    mtl >=2.2.2 && <2.4,
     template-haskell >=2.19.0.0 && <2.20,
-    -- ghc-tcplugin-api ^>=0.7.1.0,
-    -- ghc-tcplugins-extra ^>=0.4.2,
     containers ^>=0.6.5.1,
     ghc >=9.4 && <9.5,
     unordered-containers ^>=0.2.19.1,
@@ -64,7 +54,7 @@ test-suite test-inc-invariant
   main-is:             Main.hs
   build-depends:
     base >=4.17 && <4.18,
-    mtl ^>=2.2.2,
+    mtl >=2.2.2 && <2.4,
     ghc-prim >=0.9.0,
     inversion-of-control,
 

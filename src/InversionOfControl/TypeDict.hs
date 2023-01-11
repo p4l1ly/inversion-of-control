@@ -48,6 +48,26 @@ d =
     , quotePat = error "d can quote only types"
     }
 
+-- TODO is this useful?
+dcn :: QuasiQuoter
+dcn =
+  QuasiQuoter
+    { quoteType = \tag -> do
+        d <- lookupTypeName "d"
+        c <- lookupTypeName "cont"
+        n <- lookupTypeName "n"
+        case (d, c, n) of
+          (Just d, Just c, Just n) ->
+            return $
+              AppT
+                (AppT (ConT ''Get) (LitT (StrTyLit tag)))
+                (AppT (ConT ''Follow) (AppT (AppT (VarT d) (VarT c)) (VarT n)))
+          _ -> error "dcn: type d, cont or n not in scope"
+    , quoteExp = error "d can quote only types"
+    , quoteDec = error "d can quote only types"
+    , quotePat = error "d can quote only types"
+    }
+
 d1 :: QuasiQuoter
 d1 =
   QuasiQuoter
