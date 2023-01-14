@@ -17,13 +17,13 @@ module Main where
 
 import Control.Monad.Trans
 import Control.Monad.Identity (IdentityT (runIdentityT))
-import InversionOfControl.Lift (Inc, K (K), Mk, Pean (Succ, Zero), Unwrap)
-import InversionOfControl.MonadFn (Explicit, MonadFn (monadfn), Param, Result)
+import InversionOfControl.Lift (Inc, K (K), Inherit, Pean (Succ, Zero), Unwrap)
+import InversionOfControl.MonadFn (Explicit, MonadFn (monadfn), MonadFn0 (monadfn0), Param, Result)
 import InversionOfControl.TypeDict
   ( Get
   , Named (Name)
   , TypeDict (End, (:+:), (:-:))
-  , d, d1
+  , g, g1
   , ToConstraint
   , Definition
   , Follow
@@ -34,15 +34,15 @@ data Even
 type instance Param Even = Int
 type instance Result Even = Bool
 
-instance MonadFn ( 'K Zero Even) IO where
-  monadfn x = print ("even", x, even x) >> return (even x)
+instance MonadFn0 Even IO where
+  monadfn0 x = print ("even", x, even x) >> return (even x)
 
 data Odd
 type instance Param Odd = Int
 type instance Result Odd = Bool
 
-instance MonadFn ( 'K Zero Odd) IO where
-  monadfn x = print ("odd", x, odd x) >> return (odd x)
+instance MonadFn0 Odd IO where
+  monadfn0 x = print ("odd", x, odd x) >> return (odd x)
 
 data EvenDict (lifts :: Pean)
 type instance Definition (EvenDict lifts) =
@@ -62,7 +62,7 @@ data HighFnA (d :: *)
 type instance Definition (HighFnA d) =
   -- Kinds must be specified, otherwise weird things happen
   -- (including core lint warnings).
-  ( Name "k03" ([d|k01|] :: K)
+  ( Name "k03" ([g|k01|] :: K)
     :+: Name "k02" (Get "k03" (Follow (HighFnA d)) :: K)
     :+: End
   )
@@ -71,9 +71,9 @@ data HighFnI (d :: Pean -> *) (d1 :: *) (m :: * -> *) :: *
 type instance Definition (HighFnI d d1 m) =
   ( Name "all"
       ( d1 ~ HighFnA (d Zero)
-      , MonadFn ([d1|k02|] :: K) m
-      , Int ~ Param (Unwrap [d1|k02|])
-      , Bool ~ Result (Unwrap [d1|k02|])
+      , MonadFn ([g1|k02|] :: K) m
+      , Int ~ Param (Unwrap [g1|k02|])
+      , Bool ~ Result (Unwrap [g1|k02|])
       )
       -- Properly written code would also include:
       --   Follow (LowFnD (d Zero) m)
@@ -91,16 +91,16 @@ highFn ::
   m (Bool, Bool, Bool)
 highFn = do
   (,,)
-    <$> monadfn @[d1|k02|] 5
+    <$> monadfn @[g1|k02|] 5
     <*> lowFn @(d Zero)
     <*> runIdentityT (lowFn @(d (Succ Zero)))
 
 data LowFnI (d :: *) (m :: * -> *) :: *
 type instance Definition (LowFnI d m) =
   ( Name "all"
-      ( MonadFn [d|k01|] m
-      , Int ~ Param (Unwrap [d|k01|])
-      , Bool ~ Result (Unwrap [d|k01|])
+      ( MonadFn [g|k01|] m
+      , Int ~ Param (Unwrap [g|k01|])
+      , Bool ~ Result (Unwrap [g|k01|])
       )
       :+: End
   )
@@ -111,4 +111,4 @@ lowFn ::
   forall d m.
   ToConstraint (Follow (LowFnI d m)) =>
   m Bool
-lowFn = monadfn @[d|k01|] 6
+lowFn = monadfn @[g|k01|] 6

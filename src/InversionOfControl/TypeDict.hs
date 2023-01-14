@@ -35,22 +35,22 @@ type family Follow :: * -> k
 -- TODO Let solver know the following rule:
 -- GetK key (d (Succ n)) = Inc (GetK key (d n))
 
-d :: QuasiQuoter
-d =
+g :: QuasiQuoter
+g =
   QuasiQuoter
     { quoteType = \tag -> do
         d <- lookupTypeName "d"
         case d of
           Just d -> return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d))
-          Nothing -> error "d: type d not in scope"
-    , quoteExp = error "d can quote only types"
-    , quoteDec = error "d can quote only types"
-    , quotePat = error "d can quote only types"
+          Nothing -> error "g: type d not in scope"
+    , quoteExp = error "g can quote only types"
+    , quoteDec = error "g can quote only types"
+    , quotePat = error "g can quote only types"
     }
 
 -- TODO is this useful?
-dcn :: QuasiQuoter
-dcn =
+gcn :: QuasiQuoter
+gcn =
   QuasiQuoter
     { quoteType = \tag -> do
         d <- lookupTypeName "d"
@@ -62,34 +62,34 @@ dcn =
               AppT
                 (AppT (ConT ''Get) (LitT (StrTyLit tag)))
                 (AppT (ConT ''Follow) (AppT (AppT (VarT d) (VarT c)) (VarT n)))
-          _ -> error "dcn: type d, cont or n not in scope"
-    , quoteExp = error "d can quote only types"
-    , quoteDec = error "d can quote only types"
-    , quotePat = error "d can quote only types"
+          _ -> error "gcn: type d, cont or n not in scope"
+    , quoteExp = error "gcn can quote only types"
+    , quoteDec = error "gcn can quote only types"
+    , quotePat = error "gcn can quote only types"
     }
 
-d1 :: QuasiQuoter
-d1 =
+g1 :: QuasiQuoter
+g1 =
   QuasiQuoter
     { quoteType = \tag -> do
         d <- lookupTypeName "d1"
         case d of
           Just d -> return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d))
-          Nothing -> error "g: type d1 not in scope"
-    , quoteExp = error "d can quote only types"
-    , quoteDec = error "d can quote only types"
-    , quotePat = error "d can quote only types"
+          Nothing -> error "g1: type d1 not in scope"
+    , quoteExp = error "g1 can quote only types"
+    , quoteDec = error "g1 can quote only types"
+    , quotePat = error "g1 can quote only types"
     }
 
-d2 :: QuasiQuoter
-d2 =
+g2 :: QuasiQuoter
+g2 =
   QuasiQuoter
     { quoteType = \tag -> do
         d <- lookupTypeName "d2"
         case d of
           Just d -> return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d))
-          Nothing -> error "g: type d2 not in scope"
-    , quoteExp = error "d can quote only types"
-    , quoteDec = error "d can quote only types"
-    , quotePat = error "d can quote only types"
+          Nothing -> error "g2: type d2 not in scope"
+    , quoteExp = error "g2 can quote only types"
+    , quoteDec = error "g2 can quote only types"
+    , quotePat = error "g2 can quote only types"
     }
