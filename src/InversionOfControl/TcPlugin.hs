@@ -12,6 +12,7 @@ module InversionOfControl.TcPlugin where
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Identity
 import Data.Functor
 import qualified Data.HashMap.Strict as M
 import Data.IORef
@@ -87,6 +88,7 @@ data ExtraDefs = ExtraDefs
   , followTC :: TyCon
   , toConstraintTC :: TyCon
   , getTC :: TyCon
+  , selfTC :: TyCon
   , defTC :: TyCon
   , typeDictTC :: TyCon
   , cache :: IORef (M.HashMap [(Bool, Int)] CachedDict')
@@ -112,6 +114,7 @@ lookupExtraDefs = do
   endDC <- tcLookupDataCon =<< lookupOrig typeDictModule (mkDataOcc "End")
   toConstraintTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "ToConstraint")
   getTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Get")
+  selfTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Self")
   defTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Definition")
   followTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Follow")
   typeDictTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "TypeDict")
@@ -227,16 +230,20 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                 Nothing -> case followFollow typeDictT (sub_result sub) of
                   Just match -> do
                     let inst = fim_instance match
-                    let followerUFM = listToUFM $ zip (fi_tvs inst) (fim_tys match)
+                    let followerUFM' = listToUFM $ zip (fi_tvs inst) (fim_tys match)
+                    let deself t = case splitTyConApp_maybe t of
+                          Just (tycon, []) | tycon == selfTC -> Identity sub
+                          _ -> mtraverseType followerUFM' deself t
+                    let definition = deself $ fi_rhs inst
                     dictRef <- tcPluginIO do
                       newIORef
                         CachedDict
                           { cd_extractedDict = emptyUFM
                           , cd_finishedDict = emptyUFM
-                          , cd_unextractedDict = fi_rhs inst
+                          , cd_unextractedDict = sub_result $ runIdentity definition
                           , cd_removedKeys = emptyUniqSet
                           }
-                    let newDict = CachedDict'{cd_env = followerUFM, cd_mut = dictRef}
+                    let newDict = CachedDict'{cd_env = followerUFM', cd_mut = dictRef}
                     tcPluginIO do writeIORef cache (M.insert dictKey' newDict cache')
                     return $ Just newDict
                   Nothing -> return Nothing
@@ -271,10 +278,16 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                   Nothing -> stucked
             | tycon == getTC -> do
                 handleGetTC followerUFM args >>= \case
-                  Just (key, dict') -> do
+                  Just (key, dict', otherArgs) -> do
                     finishDictElem key dict'
                     (kind, t) <- getFinishedValue key dict'
-                    return Substitution{sub_changeFree = False, sub_result = t}
+                    return
+                      Substitution
+                        { sub_changeFree = False
+                        , sub_result = case otherArgs of
+                            [] -> t
+                            _ -> mkAppTys t otherArgs
+                        }
                   Nothing -> do
                     stucked
             | otherwise -> mtraverseType traverseUFM (substitute traverseUFM followerUFM) t
@@ -283,9 +296,9 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
           stucked = mtraverseType traverseUFM (substitute traverseUFM followerUFM) t
       -- return Substitution{sub_changeFree = True, sub_result = t}
 
-      handleGetTC :: FollowerUFM -> [Type] -> TcPluginM (Maybe (FastString, CachedDict'))
+      handleGetTC :: FollowerUFM -> [Type] -> TcPluginM (Maybe (FastString, CachedDict', [Type]))
       handleGetTC followerUFM args = do
-        let [kind, keyT, dictT] = args
+        let (kind : keyT : dictT : otherArgs) = args
         let goWithKey key = do
               cd_mut <- tcPluginIO do
                 newIORef
@@ -297,7 +310,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                     }
               let dict = CachedDict'{cd_env = followerUFM, cd_mut = cd_mut}
 
-              fmap (key,) <$> extractDictUntilKey key dict
+              fmap (key,,otherArgs) <$> extractDictUntilKey key dict
 
         idTryFollow followerUFM (\_ -> return Nothing) keyT $ \keyT' ->
           (isStrLitTy keyT' >>= \key -> Just do goWithKey key)
@@ -305,7 +318,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                     (tycon, args') | tycon == getTC -> Just do
                       handleGetTC followerUFM args' >>= \case
                         Nothing -> return Nothing
-                        Just (key, dict') -> do
+                        Just (key, dict', []) -> do
                           finishDictElem key dict'
                           (kindOfKey', key') <- getFinishedValue key dict'
                           case isStrLitTy key' of
@@ -379,7 +392,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                                 Nothing -> return Nothing
                           | tycon == getTC -> Just do
                               handleGetTC cd_env dargs >>= \case
-                                Just (key, dict') -> do
+                                Just (key, dict', []) -> do
                                   finishDictElem key dict'
                                   (kindOfDict'', dict'') <- getFinishedValue key dict'
                                   recNewRest dict''
@@ -469,7 +482,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                       forM_ dict2Data extractDict
                   | tycon == getTC -> Just do
                       handleGetTC cd_env dargs >>= \case
-                        Just (key, dict') -> do
+                        Just (key, dict', []) -> do
                           finishDictElem key dict'
                           (kindOfDict'', dict'') <- getFinishedValue key dict'
                           recNewRest dict''

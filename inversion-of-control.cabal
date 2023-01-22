@@ -28,6 +28,7 @@ library
     InversionOfControl.MonadFn
     InversionOfControl.TcPlugin
     InversionOfControl.Recur
+    InversionOfControl.MapRecur
 
   build-depends:
     base >=4.17 && <4.18,

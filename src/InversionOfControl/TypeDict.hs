@@ -2,7 +2,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TemplateHaskellQuotes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -28,6 +28,8 @@ type family ToConstraint (dict :: TypeDict) :: Constraint where
 
 type family Get (key :: Symbol) (dict :: TypeDict) :: k where
 
+type family Self :: * where
+
 type family Definition (d :: *) :: k
 
 type family Follow :: * -> k
@@ -46,26 +48,6 @@ g =
     , quoteExp = error "g can quote only types"
     , quoteDec = error "g can quote only types"
     , quotePat = error "g can quote only types"
-    }
-
--- TODO is this useful?
-gcn :: QuasiQuoter
-gcn =
-  QuasiQuoter
-    { quoteType = \tag -> do
-        d <- lookupTypeName "d"
-        c <- lookupTypeName "cont"
-        n <- lookupTypeName "n"
-        case (d, c, n) of
-          (Just d, Just c, Just n) ->
-            return $
-              AppT
-                (AppT (ConT ''Get) (LitT (StrTyLit tag)))
-                (AppT (ConT ''Follow) (AppT (AppT (VarT d) (VarT c)) (VarT n)))
-          _ -> error "gcn: type d, cont or n not in scope"
-    , quoteExp = error "gcn can quote only types"
-    , quoteDec = error "gcn can quote only types"
-    , quotePat = error "gcn can quote only types"
     }
 
 g1 :: QuasiQuoter
@@ -92,4 +74,34 @@ g2 =
     , quoteExp = error "g2 can quote only types"
     , quoteDec = error "g2 can quote only types"
     , quotePat = error "g2 can quote only types"
+    }
+
+-- TODO is this useful?
+gcn :: QuasiQuoter
+gcn =
+  QuasiQuoter
+    { quoteType = \tag -> do
+        d <- lookupTypeName "d"
+        c <- lookupTypeName "cont"
+        n <- lookupTypeName "n"
+        case (d, c, n) of
+          (Just d, Just c, Just n) ->
+            return $
+              AppT
+                (AppT (ConT ''Get) (LitT (StrTyLit tag)))
+                (AppT (ConT ''Follow) (AppT (AppT (VarT d) (VarT c)) (VarT n)))
+          _ -> error "gcn: type d, cont or n not in scope"
+    , quoteExp = error "gcn can quote only types"
+    , quoteDec = error "gcn can quote only types"
+    , quotePat = error "gcn can quote only types"
+    }
+
+gs :: QuasiQuoter
+gs =
+  QuasiQuoter
+    { quoteType = \tag -> do
+        return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (ConT ''Self))
+    , quoteExp = error "gs can quote only types"
+    , quoteDec = error "gs can quote only types"
+    , quotePat = error "gs can quote only types"
     }

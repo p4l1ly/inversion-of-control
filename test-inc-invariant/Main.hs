@@ -27,6 +27,7 @@ import InversionOfControl.TypeDict
   , ToConstraint
   , Definition
   , Follow
+  , Self
   )
 import GHC.Types (Constraint)
 
@@ -63,7 +64,7 @@ type instance Definition (HighFnA d) =
   -- Kinds must be specified, otherwise weird things happen
   -- (including core lint warnings).
   ( Name "k03" ([g|k01|] :: K)
-    :+: Name "k02" (Get "k03" (Follow (HighFnA d)) :: K)
+    :+: Name "k02" (Get "k03" (Follow Self) :: K)
     :+: End
   )
 
