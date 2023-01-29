@@ -13,6 +13,7 @@ module Main where
 
 import Data.Kind
 import GHC.TypeLits
+import InversionOfControl.Lift
 import InversionOfControl.TypeDict
 
 data Dict1 (d :: * -> *) :: *
@@ -47,7 +48,46 @@ type instance
       :+: End
 
 main :: IO ()
-main = fun @Dict2
+main = do
+  fun @Dict2
+  funLift
+  funDeep
 
 fun :: forall d. ToConstraint (Follow (Dict1 d)) => IO ()
 fun = return ()
+
+data E
+type instance Definition E = Name "lift" () :+: Name "k" () :+: End
+
+funLift ::
+  ( LiftsUntil "k" (Name "k" () :+: End) ~ Zero
+  , LiftsUntil
+      "k"
+      ( Name "lift" ()
+          :+: Name "g" Bool
+          :+: Name "lift" ()
+          :+: Name "k" ()
+          :+: End
+      )
+      ~ Succ (Succ Zero)
+  , LiftsUntil
+      "k"
+      ( Name "g" Bool
+          :+: Name "lift" ()
+          :+: Follow E
+      )
+      ~ Succ (Succ Zero)
+  ) =>
+  IO ()
+funLift = return ()
+
+data LiftUp d
+type instance Definition (LiftUp d) = Name "lift" () :+: Follow d
+
+funDeep ::
+  forall d.
+  ( Get "x" (Follow (LiftUp d)) ~ Get "x" (Follow d)
+  , LiftsUntil "x" (Follow (LiftUp d)) ~ Succ (LiftsUntil "x" (Follow d))
+  ) =>
+  IO ()
+funDeep = return ()

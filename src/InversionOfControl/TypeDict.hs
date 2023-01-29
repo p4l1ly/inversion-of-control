@@ -33,7 +33,7 @@ type family Definition (d :: *) :: k
 
 type family Follow :: * -> k
 
-type family LiftsUntil (dict :: TypeDict) :: Pean
+type family LiftsUntil (key :: Symbol) (dict :: TypeDict) :: Pean
 
 -- TODO Let solver know the following rule:
 -- GetK key (d (Succ n)) = Inc (GetK key (d n))

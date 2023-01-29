@@ -91,17 +91,19 @@ data LiftDict' = LiftDict'
   }
 
 data ExtraDefs = ExtraDefs
-  { consDC :: DataCon
-  , endDC :: DataCon
+  { consTC :: TyCon
+  , endTC :: TyCon
   , followTC :: TyCon
   , toConstraintTC :: TyCon
   , getTC :: TyCon
   , selfTC :: TyCon
   , defTC :: TyCon
-  , typeDictTC :: TyCon
+  , typeDictT :: Type
   , cache :: IORef (M.HashMap [(Bool, Int)] CachedDict')
   , ld_cache :: IORef (M.HashMap [(Bool, Int)] LiftDict')
   , liftsUntilTC :: TyCon
+  , succTC :: TyCon
+  , zeroT :: Type
   }
 
 lookupModule :: ModuleName -> FastString -> TcPluginM Module
@@ -130,6 +132,16 @@ lookupExtraDefs = do
   typeDictTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "TypeDict")
   cache <- tcPluginIO $ newIORef M.empty
   ld_cache <- tcPluginIO $ newIORef M.empty
+  succDC <- tcLookupDataCon =<< lookupOrig liftModule (mkDataOcc "Succ")
+  zeroDC <- tcLookupDataCon =<< lookupOrig liftModule (mkDataOcc "Zero")
+
+  let consTC = promoteDataCon consDC
+  let endTC = promoteDataCon endDC
+  let succTC = promoteDataCon succDC
+  let zeroTC = promoteDataCon zeroDC
+
+  let zeroT = TyConApp zeroTC []
+  let typeDictT = TyConApp typeDictTC []
 
   return ExtraDefs{..}
 
@@ -137,80 +149,81 @@ mkVarSubst :: Ct -> Maybe (TcTyVar, Type)
 mkVarSubst ct@(CEqCan{..}) | TyVarLHS tyvar <- cc_lhs = Just (tyvar, cc_rhs)
 mkVarSubst _ = Nothing
 
+liftStr :: FastString
+liftStr = fsLit "lift"
+
 type FollowerUFM = UniqFM TcTyVar Type
+
+tryFollow :: UniqFM TyVar Type -> (Type -> p) -> Type -> (Type -> Maybe t) -> (t -> p) -> p
+tryFollow followerUFM stucked x deCon fn = rec x
+  where
+    rec x =
+      case deCon x of
+        Just x' -> fn x'
+        Nothing -> case getTyVar_maybe x of
+          Just var -> case lookupUFM followerUFM var of
+            Just x' -> rec x'
+            Nothing -> stucked x
+          Nothing -> tryApplyAppTy x []
+    tryApplyAppTy x args = case splitAppTy_maybe x of
+      Just (x', ty) -> tryApplyAppTy x' (ty : args)
+      Nothing -> case getTyVar_maybe x of
+        Just var -> case lookupUFM followerUFM var of
+          Just x' -> rec (mkAppTys x' args)
+          Nothing -> stucked x
+        Nothing -> stucked x
+
+idTryFollow :: UniqFM TyVar Type -> (Type -> p) -> Type -> (Type -> Maybe p) -> p
+idTryFollow followerUFM stucked x deCon = tryFollow followerUFM stucked x deCon id
+
+getDictKey :: FollowerUFM -> Type -> TcPluginM (Substitution, Maybe [(Bool, Int)])
+getDictKey followerUFM t =
+  idTryFollow followerUFM stucked t $ \x ->
+    ( splitTyConApp_maybe x >>= \case
+        (tycon, args) | isFamFreeTyCon tycon -> Just do
+          args' <- mapM (getDictKey followerUFM) args
+          return
+            ( Substitution
+                { sub_changeFree = all (sub_changeFree . fst) args'
+                , sub_result = mkTyConApp tycon $ map (sub_result . fst) args'
+                }
+            , case mapM snd args' of
+                Nothing -> Nothing
+                Just args'' -> Just $ (False, getKey (getUnique tycon)) : concat args''
+            )
+        _ -> Nothing
+    )
+      <|> ( splitAppTy_maybe x >>= \case
+              (x', ty) -> Just do
+                args'@[x'', ty'] <- mapM (getDictKey followerUFM) [x', ty]
+                return
+                  ( Substitution
+                      { sub_changeFree = all (sub_changeFree . fst) args'
+                      , sub_result = mkAppTys (sub_result $ fst x'') [sub_result $ fst ty']
+                      }
+                  , case mapM snd args' of
+                      Nothing -> Nothing
+                      Just args'' -> Just $ concat args''
+                  )
+          )
+  where
+    stucked t' = case getTyVar_maybe t' of
+      Just var ->
+        return
+          ( Substitution{sub_changeFree = True, sub_result = t'}
+          , Just [(True, getKey (getUnique var))]
+          )
+      _ ->
+        return
+          ( Substitution{sub_changeFree = True, sub_result = t'}
+          , Nothing
+          )
 
 solve :: Opts -> ExtraDefs -> EvBindsVar -> [Ct] -> [Ct] -> TcPluginM TcPluginSolveResult
 solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
   famInstEnvs <- unsafeTcPluginTcM tcGetFamInstEnvs
 
-  let consTC = promoteDataCon consDC
-  let endTC = promoteDataCon endDC
-  let typeDictT = mkTyConApp typeDictTC []
-
   let followerUFM0 = listToUFM $ mapMaybe mkVarSubst givens
-
-  let tryFollow :: UniqFM TyVar Type -> (Type -> p) -> Type -> (Type -> Maybe t) -> (t -> p) -> p
-      tryFollow followerUFM stucked x deCon fn = rec x
-        where
-          rec x =
-            case deCon x of
-              Just x' -> fn x'
-              Nothing -> case getTyVar_maybe x of
-                Just var -> case lookupUFM followerUFM var of
-                  Just x' -> rec x'
-                  Nothing -> stucked x
-                Nothing -> tryApplyAppTy x []
-          tryApplyAppTy x args = case splitAppTy_maybe x of
-            Just (x', ty) -> tryApplyAppTy x' (ty : args)
-            Nothing -> case getTyVar_maybe x of
-              Just var -> case lookupUFM followerUFM var of
-                Just x' -> rec (mkAppTys x' args)
-                Nothing -> stucked x
-              Nothing -> stucked x
-  let idTryFollow followerUFM stucked x deCon = tryFollow followerUFM stucked x deCon id
-
-  let getDictKey :: FollowerUFM -> Type -> TcPluginM (Substitution, Maybe [(Bool, Int)])
-      getDictKey followerUFM t =
-        idTryFollow followerUFM stucked t $ \x ->
-          ( splitTyConApp_maybe x >>= \case
-              (tycon, args) | isFamFreeTyCon tycon -> Just do
-                args' <- mapM (getDictKey followerUFM) args
-                return
-                  ( Substitution
-                      { sub_changeFree = all (sub_changeFree . fst) args'
-                      , sub_result = mkTyConApp tycon $ map (sub_result . fst) args'
-                      }
-                  , case mapM snd args' of
-                      Nothing -> Nothing
-                      Just args'' -> Just $ (False, getKey (getUnique tycon)) : concat args''
-                  )
-              _ -> Nothing
-          )
-            <|> ( splitAppTy_maybe x >>= \case
-                    (x', ty) -> Just do
-                      args'@[x'', ty'] <- mapM (getDictKey followerUFM) [x', ty]
-                      return
-                        ( Substitution
-                            { sub_changeFree = all (sub_changeFree . fst) args'
-                            , sub_result = mkAppTys (sub_result $ fst x'') [sub_result $ fst ty']
-                            }
-                        , case mapM snd args' of
-                            Nothing -> Nothing
-                            Just args'' -> Just $ concat args''
-                        )
-                )
-        where
-          stucked t' = case getTyVar_maybe t' of
-            Just var ->
-              return
-                ( Substitution{sub_changeFree = True, sub_result = t'}
-                , Just [(True, getKey (getUnique var))]
-                )
-            _ ->
-              return
-                ( Substitution{sub_changeFree = True, sub_result = t'}
-                , Nothing
-                )
 
   let followFollow :: Type -> Type -> Maybe FamInstMatch
       followFollow k t = do
@@ -257,6 +270,35 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                     return $ Just newDict
                   Nothing -> return Nothing
 
+  let liftDictFollow :: FollowerUFM -> Type -> TcPluginM (Substitution, Maybe LiftDict')
+      liftDictFollow followerUFM dict = do
+        (sub, dictKey) <- getDictKey followerUFM dict
+        (sub,)
+          <$> case dictKey of
+            Nothing -> return Nothing
+            Just dictKey' -> do
+              cache' <- tcPluginIO $ readIORef ld_cache
+              case M.lookup dictKey' cache' of
+                Just dictRef -> return $ Just dictRef
+                Nothing -> case followFollow typeDictT (sub_result sub) of
+                  Just match -> do
+                    let inst = fim_instance match
+                    let followerUFM' = listToUFM $ zip (fi_tvs inst) (fim_tys match)
+                    let deself t = case splitTyConApp_maybe t of
+                          Just (tycon, []) | tycon == selfTC -> Identity sub
+                          _ -> mtraverseType followerUFM' deself t
+                    let definition = deself $ fi_rhs inst
+                    dictRef <- tcPluginIO do
+                      newIORef
+                        LiftDict
+                          { ld_extractedDict = emptyUFM
+                          , ld_unextractedDict = sub_result $ runIdentity definition
+                          }
+                    let newDict = LiftDict'{ld_env = followerUFM', ld_mut = dictRef}
+                    tcPluginIO do writeIORef ld_cache (M.insert dictKey' newDict cache')
+                    return $ Just newDict
+                  Nothing -> return Nothing
+
   let substitute :: FollowerUFM -> FollowerUFM -> Type -> TcPluginM Substitution
       substitute traverseUFM followerUFM t = do
         case splitTyConApp_maybe t of
@@ -298,7 +340,11 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                         }
                   Left sub -> return sub
             | tycon == liftsUntilTC -> do
-                handleLiftsUntilTC followerUFM args >>= undefined
+                handleLiftsUntilTC followerUFM args >>= \case
+                  Right n -> do
+                    let nPean = iterate (\x -> TyConApp succTC [x]) zeroT !! n
+                    return Substitution{sub_changeFree = False, sub_result = nPean}
+                  Left sub -> return sub
             | otherwise -> mtraverseType traverseUFM (substitute traverseUFM followerUFM) t
           Nothing -> mtraverseType traverseUFM (substitute traverseUFM followerUFM) t
         where
@@ -332,26 +378,106 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
         let [keyT, dictT] = args
         let stucked = unchanged (TyConApp getTC args)
         let goWithKey key = do
-              cd_mut <- tcPluginIO do
+              ld_mut <- tcPluginIO do
                 newIORef
-                  CachedDict
-                    { cd_extractedDict = emptyUFM
-                    , cd_finishedDict = emptyUFM
-                    , cd_unextractedDict = dictT
+                  LiftDict
+                    { ld_extractedDict = emptyUFM
+                    , ld_unextractedDict = dictT
                     }
-              let dict = CachedDict'{cd_env = followerUFM, cd_mut = cd_mut}
+              let dict = LiftDict'{ld_env = followerUFM, ld_mut = ld_mut}
               let dictTSub = Substitution{sub_result = dictT, sub_changeFree = True}
 
               countLiftsUntilKey key dict dictTSub False <&> \case
-                Left dictTSub' ->
+                Left (0, dictTSub') ->
                   Left dictTSub'{sub_result = TyConApp liftsUntilTC [keyT, sub_result dictTSub']}
+                Left (n, Substitution{sub_result}) ->
+                  Left
+                    Substitution
+                      { sub_changeFree = False
+                      , sub_result =
+                          iterate (\x -> TyConApp succTC [x]) (TyConApp liftsUntilTC [keyT, sub_result]) !! n
+                      }
                 Right n -> Right n
 
         idTryFollow followerUFM (\_ -> return $ Left stucked) keyT $
           isStrLitTy >=> \key -> Just do goWithKey key
 
-      countLiftsUntilKey :: FastString -> CachedDict' -> Substitution -> Bool -> TcPluginM (Either Substitution Int)
-      countLiftsUntilKey key old'@CachedDict'{cd_env, cd_mut} sub followed = undefined
+      countLiftsUntilKey :: FastString -> LiftDict' -> Substitution -> Bool -> TcPluginM (Either (Int, Substitution) Int)
+      countLiftsUntilKey key old'@LiftDict'{ld_env, ld_mut} sub followed = rec sub 0
+        where
+          rec :: Substitution -> Int -> TcPluginM (Either (Int, Substitution) Int)
+          rec sub n = do
+            old@(LiftDict dict rest) <- tcPluginIO $ readIORef ld_mut
+            case lookupUFM dict key of
+              Just n -> return $ Right n
+              Nothing -> do
+                let rec' rest'
+                      | followed = rec sub
+                      | otherwise = rec (changed rest')
+                let myTryFollow = idTryFollow ld_env \_ -> return $ Left (0, sub)
+                let nsub = if followed then 0 else n
+                myTryFollow rest $
+                  splitTyConApp_maybe >=> \case
+                    (tycon, dargs)
+                      | tycon == consTC -> Just do
+                          let [_, named, dRest] = dargs
+                          myTryFollow named $
+                            splitTyConApp_maybe >=> \case
+                              (_, [_, name, _]) ->
+                                Just do
+                                  myTryFollow name $
+                                    isStrLitTy >=> \name' ->
+                                      Just do
+                                        let new =
+                                              old
+                                                { ld_extractedDict = addToUFM dict name' n
+                                                , ld_unextractedDict = dRest
+                                                }
+                                        tcPluginIO $ writeIORef ld_mut new
+                                        case () of
+                                          _
+                                            | name' == key -> return $ Right n
+                                            | name' == liftStr -> rec' dRest (n + 1)
+                                            | otherwise -> rec' dRest n
+                              _ -> Nothing
+                      | tycon == endTC -> Just do
+                          error $ "Get: element not found " ++ showPprUnsafe (ppr key)
+                      | tycon == followTC -> Just do
+                          let (prependKind, dict2) = case dargs of
+                                [k, dict2] -> ((k :), dict2)
+                                [dict2] -> (id, dict2)
+                                _ -> error $ "followTC: unexpected dargs " ++ showPprUnsafe (ppr dargs)
+                          (dict2Sub, dict2Data) <- liftDictFollow ld_env dict2
+                          let followDict2SubR = TyConApp followTC $ prependKind [sub_result dict2Sub]
+                          let sub2 =
+                                Substitution
+                                  { sub_changeFree = sub_changeFree sub && sub_changeFree dict2Sub && not followed
+                                  , sub_result = followDict2SubR
+                                  }
+                          tcPluginIO $ modifyIORef ld_mut $ \old ->
+                            old{ld_unextractedDict = followDict2SubR}
+                          case dict2Data of
+                            Just dict2Data' ->
+                              countLiftsUntilKey key dict2Data' sub2 True >>= \case
+                                Left (n2, sub) -> return $ Left (n + n2, sub)
+                                Right n2 -> return $ Right $ n + n2
+                            Nothing -> return $ Left (n, sub2)
+                      | tycon == getTC -> Just do
+                          handleGetTC ld_env dargs >>= \case
+                            Right (key, dict', []) -> do
+                              finishDictElem key dict'
+                              (kindOfDict'', dict'') <- getFinishedValue key dict'
+                              tcPluginIO $ writeIORef ld_mut old{ld_unextractedDict = dict''}
+                              rec' dict'' n
+                            Left sub' ->
+                              Left
+                                <$> if sub_changeFree sub'
+                                  then return (nsub, sub)
+                                  else do
+                                    let new = old{ld_unextractedDict = sub_result sub'}
+                                    tcPluginIO $ writeIORef ld_mut new
+                                    return if followed then (0, sub) else (n, sub')
+                      | otherwise -> Nothing
 
       extractDictUntilKey :: FastString -> CachedDict' -> Substitution -> Bool -> TcPluginM (Either Substitution CachedDict')
       extractDictUntilKey key old'@CachedDict'{cd_env, cd_mut} sub followed = rec sub
@@ -365,9 +491,6 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                     let sub' rest'
                           | followed = sub
                           | otherwise = changed rest'
-                    let recNewRest rest' = do
-                          tcPluginIO $ writeIORef cd_mut old{cd_unextractedDict = rest'}
-                          rec (sub' rest')
                     let myTryFollow = idTryFollow cd_env \_ -> return $ Left sub
                     myTryFollow rest $
                       splitTyConApp_maybe >=> \case
@@ -394,22 +517,29 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                           | tycon == endTC -> Just do
                               error $ "Get: element not found " ++ showPprUnsafe (ppr key)
                           | tycon == followTC -> Just do
-                              let dict2 = case dargs of
-                                    [k, dict2] -> dict2
-                                    [dict2] -> dict2
+                              let (prependKind, dict2) = case dargs of
+                                    [k, dict2] -> ((k :), dict2)
+                                    [dict2] -> (id, dict2)
                                     _ -> error $ "followTC: unexpected dargs " ++ showPprUnsafe (ppr dargs)
                               (dict2Sub, dict2Data) <- dictFollow cd_env dict2
+                              let followDict2SubR = TyConApp followTC $ prependKind [sub_result dict2Sub]
+                              let sub2 =
+                                    Substitution
+                                      { sub_changeFree = sub_changeFree sub && sub_changeFree dict2Sub && not followed
+                                      , sub_result = followDict2SubR
+                                      }
                               tcPluginIO $ modifyIORef cd_mut $ \old ->
-                                old{cd_unextractedDict = mkTyConApp followTC [sub_result dict2Sub]}
+                                old{cd_unextractedDict = followDict2SubR}
                               case dict2Data of
-                                Just dict2Data' -> extractDictUntilKey key dict2Data' dict2Sub True
-                                Nothing -> return $ Left sub
+                                Just dict2Data' -> extractDictUntilKey key dict2Data' sub2 True
+                                Nothing -> return $ Left sub2
                           | tycon == getTC -> Just do
                               handleGetTC cd_env dargs >>= \case
                                 Right (key, dict', []) -> do
                                   finishDictElem key dict'
                                   (kindOfDict'', dict'') <- getFinishedValue key dict'
-                                  recNewRest dict''
+                                  tcPluginIO $ writeIORef cd_mut old{cd_unextractedDict = dict''}
+                                  rec (sub' dict'')
                                 Left sub' ->
                                   Left
                                     <$> if sub_changeFree sub'
