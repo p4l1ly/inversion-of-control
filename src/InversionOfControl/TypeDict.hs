@@ -12,6 +12,7 @@ module InversionOfControl.TypeDict where
 import Data.Functor ((<&>))
 import Data.Kind
 import GHC.TypeLits (Symbol)
+import InversionOfControl.Lift
 import Language.Haskell.TH (Exp (AppTypeE, VarE), TyLit (StrTyLit), Type (AppT, ConT, LitT, VarT), lookupTypeName, lookupValueName)
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
 
@@ -19,10 +20,8 @@ data Named k = Name Symbol k
 
 data TypeDict where
   (:+:) :: Named k -> TypeDict -> TypeDict
-  (:-:) :: Symbol -> TypeDict -> TypeDict
   End :: TypeDict
 infixr 1 :+:
-infixr 1 :-:
 
 type family ToConstraint (dict :: TypeDict) :: Constraint where
 
@@ -33,6 +32,8 @@ type family Self :: * where
 type family Definition (d :: *) :: k
 
 type family Follow :: * -> k
+
+type family LiftsUntil (dict :: TypeDict) :: Pean
 
 -- TODO Let solver know the following rule:
 -- GetK key (d (Succ n)) = Inc (GetK key (d n))

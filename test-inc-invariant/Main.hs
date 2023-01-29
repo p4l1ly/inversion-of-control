@@ -22,7 +22,7 @@ import InversionOfControl.MonadFn (Explicit, MonadFn (monadfn), MonadFn0 (monadf
 import InversionOfControl.TypeDict
   ( Get
   , Named (Name)
-  , TypeDict (End, (:+:), (:-:))
+  , TypeDict (End, (:+:))
   , g, g1
   , ToConstraint
   , Definition

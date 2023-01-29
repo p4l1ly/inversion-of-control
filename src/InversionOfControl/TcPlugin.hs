@@ -73,7 +73,6 @@ data CachedDict = CachedDict
   { cd_extractedDict :: UniqFM FastString ExtractedVal
   , cd_finishedDict :: UniqFM FastString ExtractedVal
   , cd_unextractedDict :: Type
-  , cd_removedKeys :: UniqSet FastString
   }
 
 data CachedDict' = CachedDict'
@@ -81,9 +80,18 @@ data CachedDict' = CachedDict'
   , cd_mut :: IORef CachedDict
   }
 
+data LiftDict = LiftDict
+  { ld_extractedDict :: UniqFM FastString Int
+  , ld_unextractedDict :: Type
+  }
+
+data LiftDict' = LiftDict'
+  { ld_env :: FollowerUFM
+  , ld_mut :: IORef LiftDict
+  }
+
 data ExtraDefs = ExtraDefs
   { consDC :: DataCon
-  , removeDC :: DataCon
   , endDC :: DataCon
   , followTC :: TyCon
   , toConstraintTC :: TyCon
@@ -92,6 +100,8 @@ data ExtraDefs = ExtraDefs
   , defTC :: TyCon
   , typeDictTC :: TyCon
   , cache :: IORef (M.HashMap [(Bool, Int)] CachedDict')
+  , ld_cache :: IORef (M.HashMap [(Bool, Int)] LiftDict')
+  , liftsUntilTC :: TyCon
   }
 
 lookupModule :: ModuleName -> FastString -> TcPluginM Module
@@ -110,15 +120,16 @@ lookupExtraDefs = do
   typeDictModule <- lookupModule (mkModuleName "InversionOfControl.TypeDict") (fsLit "inversion-of-control")
 
   consDC <- tcLookupDataCon =<< lookupOrig typeDictModule (mkDataOcc ":+:")
-  removeDC <- tcLookupDataCon =<< lookupOrig typeDictModule (mkDataOcc ":-:")
   endDC <- tcLookupDataCon =<< lookupOrig typeDictModule (mkDataOcc "End")
   toConstraintTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "ToConstraint")
   getTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Get")
   selfTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Self")
   defTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Definition")
   followTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Follow")
+  liftsUntilTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "LiftsUntil")
   typeDictTC <- tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "TypeDict")
   cache <- tcPluginIO $ newIORef M.empty
+  ld_cache <- tcPluginIO $ newIORef M.empty
 
   return ExtraDefs{..}
 
@@ -133,7 +144,6 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
   famInstEnvs <- unsafeTcPluginTcM tcGetFamInstEnvs
 
   let consTC = promoteDataCon consDC
-  let removeTC = promoteDataCon removeDC
   let endTC = promoteDataCon endDC
   let typeDictT = mkTyConApp typeDictTC []
 
@@ -241,7 +251,6 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                           { cd_extractedDict = emptyUFM
                           , cd_finishedDict = emptyUFM
                           , cd_unextractedDict = sub_result $ runIdentity definition
-                          , cd_removedKeys = emptyUniqSet
                           }
                     let newDict = CachedDict'{cd_env = followerUFM', cd_mut = dictRef}
                     tcPluginIO do writeIORef cache (M.insert dictKey' newDict cache')
@@ -261,13 +270,12 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                       { cd_extractedDict = emptyUFM
                       , cd_finishedDict = emptyUFM
                       , cd_unextractedDict = dictT
-                      , cd_removedKeys = emptyUniqSet
                       }
                 let dict = CachedDict'{cd_env = followerUFM, cd_mut = cd_mut}
 
                 extractDict dict
                 finishDict dict
-                values <- dictValues emptyUniqSet dict
+                values <- dictValues dict
 
                 case values of
                   Just constrs -> do
@@ -278,7 +286,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                   Nothing -> stucked
             | tycon == getTC -> do
                 handleGetTC followerUFM args >>= \case
-                  Just (key, dict', otherArgs) -> do
+                  Right (key, dict', otherArgs) -> do
                     finishDictElem key dict'
                     (kind, t) <- getFinishedValue key dict'
                     return
@@ -288,17 +296,18 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                             [] -> t
                             _ -> mkAppTys t otherArgs
                         }
-                  Nothing -> do
-                    stucked
+                  Left sub -> return sub
+            | tycon == liftsUntilTC -> do
+                handleLiftsUntilTC followerUFM args >>= undefined
             | otherwise -> mtraverseType traverseUFM (substitute traverseUFM followerUFM) t
           Nothing -> mtraverseType traverseUFM (substitute traverseUFM followerUFM) t
         where
           stucked = mtraverseType traverseUFM (substitute traverseUFM followerUFM) t
-      -- return Substitution{sub_changeFree = True, sub_result = t}
 
-      handleGetTC :: FollowerUFM -> [Type] -> TcPluginM (Maybe (FastString, CachedDict', [Type]))
+      handleGetTC :: FollowerUFM -> [Type] -> TcPluginM (Either Substitution (FastString, CachedDict', [Type]))
       handleGetTC followerUFM args = do
         let (kind : keyT : dictT : otherArgs) = args
+        let stucked = unchanged (TyConApp getTC args)
         let goWithKey key = do
               cd_mut <- tcPluginIO do
                 newIORef
@@ -306,41 +315,60 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                     { cd_extractedDict = emptyUFM
                     , cd_finishedDict = emptyUFM
                     , cd_unextractedDict = dictT
-                    , cd_removedKeys = emptyUniqSet
                     }
               let dict = CachedDict'{cd_env = followerUFM, cd_mut = cd_mut}
+              let dictTSub = Substitution{sub_result = dictT, sub_changeFree = True}
 
-              fmap (key,,otherArgs) <$> extractDictUntilKey key dict
+              extractDictUntilKey key dict dictTSub False <&> \case
+                Left dictTSub' ->
+                  Left dictTSub'{sub_result = TyConApp getTC (kind : keyT : sub_result dictTSub' : otherArgs)}
+                Right dict' -> Right (key, dict', otherArgs)
 
-        idTryFollow followerUFM (\_ -> return Nothing) keyT $ \keyT' ->
-          (isStrLitTy keyT' >>= \key -> Just do goWithKey key)
-            <|> ( splitTyConApp_maybe keyT' >>= \case
-                    (tycon, args') | tycon == getTC -> Just do
-                      handleGetTC followerUFM args' >>= \case
-                        Nothing -> return Nothing
-                        Just (key, dict', []) -> do
-                          finishDictElem key dict'
-                          (kindOfKey', key') <- getFinishedValue key dict'
-                          case isStrLitTy key' of
-                            Nothing -> return Nothing
-                            Just key'' -> goWithKey key''
-                    _ -> Nothing
-                )
+        idTryFollow followerUFM (\_ -> return $ Left stucked) keyT $
+          isStrLitTy >=> \key -> Just do goWithKey key
 
-      extractDictUntilKey :: FastString -> CachedDict' -> TcPluginM (Maybe CachedDict')
-      extractDictUntilKey key old'@CachedDict'{cd_env, cd_mut} = rec
+      handleLiftsUntilTC :: FollowerUFM -> [Type] -> TcPluginM (Either Substitution Int)
+      handleLiftsUntilTC followerUFM args = do
+        let [keyT, dictT] = args
+        let stucked = unchanged (TyConApp getTC args)
+        let goWithKey key = do
+              cd_mut <- tcPluginIO do
+                newIORef
+                  CachedDict
+                    { cd_extractedDict = emptyUFM
+                    , cd_finishedDict = emptyUFM
+                    , cd_unextractedDict = dictT
+                    }
+              let dict = CachedDict'{cd_env = followerUFM, cd_mut = cd_mut}
+              let dictTSub = Substitution{sub_result = dictT, sub_changeFree = True}
+
+              countLiftsUntilKey key dict dictTSub False <&> \case
+                Left dictTSub' ->
+                  Left dictTSub'{sub_result = TyConApp liftsUntilTC [keyT, sub_result dictTSub']}
+                Right n -> Right n
+
+        idTryFollow followerUFM (\_ -> return $ Left stucked) keyT $
+          isStrLitTy >=> \key -> Just do goWithKey key
+
+      countLiftsUntilKey :: FastString -> CachedDict' -> Substitution -> Bool -> TcPluginM (Either Substitution Int)
+      countLiftsUntilKey key old'@CachedDict'{cd_env, cd_mut} sub followed = undefined
+
+      extractDictUntilKey :: FastString -> CachedDict' -> Substitution -> Bool -> TcPluginM (Either Substitution CachedDict')
+      extractDictUntilKey key old'@CachedDict'{cd_env, cd_mut} sub followed = rec sub
         where
-          rec = do
-            old@(CachedDict dict finished rest removed) <- tcPluginIO $ readIORef cd_mut
+          rec sub = do
+            old@(CachedDict dict finished rest) <- tcPluginIO $ readIORef cd_mut
             case () of
               _
-                | key `elemUFM` dict || key `elemUFM` finished -> return $ Just old'
-                | key `elementOfUniqSet` removed -> error $ "Get: element removed " ++ showPprUnsafe (ppr key)
+                | key `elemUFM` dict || key `elemUFM` finished -> return $ Right old'
                 | otherwise -> do
+                    let sub' rest'
+                          | followed = sub
+                          | otherwise = changed rest'
                     let recNewRest rest' = do
                           tcPluginIO $ writeIORef cd_mut old{cd_unextractedDict = rest'}
-                          rec
-                    let myTryFollow = idTryFollow cd_env (\_ -> return Nothing)
+                          rec (sub' rest')
+                    let myTryFollow = idTryFollow cd_env \_ -> return $ Left sub
                     myTryFollow rest $
                       splitTyConApp_maybe >=> \case
                         (tycon, dargs)
@@ -349,34 +377,20 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                               myTryFollow named $
                                 splitTyConApp_maybe >=> \case
                                   (_, [kind, name, value]) ->
-                                    Just $
+                                    Just do
                                       myTryFollow name $
-                                        isStrLitTy >=> \case
-                                          name'
-                                            | name' `elementOfUniqSet` removed -> Just $ recNewRest dRest
-                                            | otherwise -> Just do
-                                                let new =
-                                                      old
-                                                        { cd_extractedDict = addToUFM dict name' (kind, value)
-                                                        , cd_unextractedDict = dRest
-                                                        }
-                                                tcPluginIO $ writeIORef cd_mut new
-                                                if name' == key
-                                                  then return $ Just old'
-                                                  else rec
+                                        isStrLitTy >=> \name' ->
+                                          Just do
+                                            let new =
+                                                  old
+                                                    { cd_extractedDict = addToUFM dict name' (kind, value)
+                                                    , cd_unextractedDict = dRest
+                                                    }
+                                            tcPluginIO $ writeIORef cd_mut new
+                                            if name' == key
+                                              then return $ Right old'
+                                              else rec $ sub' dRest
                                   _ -> Nothing
-                          | tycon == removeTC -> Just do
-                              let [name, rest'] = dargs
-                              myTryFollow name $
-                                isStrLitTy >=> \name' -> Just do
-                                  let new =
-                                        old
-                                          { cd_removedKeys = removed `addOneToUniqSet` name'
-                                          , cd_unextractedDict = rest'
-                                          }
-                                  tcPluginIO $ writeIORef cd_mut new
-                                  when (key == name') $ error $ "Get: element removed " ++ showPprUnsafe (ppr key)
-                                  rec
                           | tycon == endTC -> Just do
                               error $ "Get: element not found " ++ showPprUnsafe (ppr key)
                           | tycon == followTC -> Just do
@@ -388,28 +402,34 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                               tcPluginIO $ modifyIORef cd_mut $ \old ->
                                 old{cd_unextractedDict = mkTyConApp followTC [sub_result dict2Sub]}
                               case dict2Data of
-                                Just dict2Data' -> extractDictUntilKey key dict2Data'
-                                Nothing -> return Nothing
+                                Just dict2Data' -> extractDictUntilKey key dict2Data' dict2Sub True
+                                Nothing -> return $ Left sub
                           | tycon == getTC -> Just do
                               handleGetTC cd_env dargs >>= \case
-                                Just (key, dict', []) -> do
+                                Right (key, dict', []) -> do
                                   finishDictElem key dict'
                                   (kindOfDict'', dict'') <- getFinishedValue key dict'
                                   recNewRest dict''
-                                Nothing ->
-                                  return Nothing
+                                Left sub' ->
+                                  Left
+                                    <$> if sub_changeFree sub'
+                                      then return sub
+                                      else do
+                                        let new = old{cd_unextractedDict = sub_result sub'}
+                                        tcPluginIO $ writeIORef cd_mut new
+                                        return if followed then sub else sub'
                           | otherwise -> Nothing
 
       finishDictElem :: FastString -> CachedDict' -> TcPluginM ()
       finishDictElem key CachedDict'{cd_env, cd_mut} = do
-        d1@(CachedDict dict fdict _ _) <- tcPluginIO (readIORef cd_mut)
+        d1@(CachedDict dict fdict _) <- tcPluginIO (readIORef cd_mut)
         case lookupUFM dict key of
           Nothing ->
             unless (key `elemUFM` fdict) do
               error $ "finishDictElem key not found " ++ showPprUnsafe (ppr key $$ ppr dict)
           Just (kind, val) -> do
             val' <- sub_result <$> substitute cd_env cd_env val
-            d2@(CachedDict dict2 fdict2 _ _) <- tcPluginIO $ readIORef cd_mut
+            d2@(CachedDict dict2 fdict2 _) <- tcPluginIO $ readIORef cd_mut
             when (elemUFM key dict2) do
               let d3 =
                     d2
@@ -431,7 +451,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
       extractDict CachedDict'{cd_env, cd_mut} = rec
         where
           rec = do
-            old@(CachedDict dict _ rest removed) <- tcPluginIO $ readIORef cd_mut
+            old@(CachedDict dict _ rest) <- tcPluginIO $ readIORef cd_mut
             let recNewRest rest' = do
                   tcPluginIO $ writeIORef cd_mut old{cd_unextractedDict = rest'}
                   rec
@@ -446,29 +466,15 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                           (_, [kind, name, value]) ->
                             Just $
                               myTryFollow name $
-                                isStrLitTy >=> \case
-                                  name'
-                                    | name' `elementOfUniqSet` removed -> Just $ recNewRest dRest
-                                    | otherwise -> Just do
-                                        let new =
-                                              old
-                                                { cd_extractedDict = addToUFM_C const dict name' (kind, value)
-                                                , cd_unextractedDict = dRest
-                                                }
-                                        tcPluginIO $ writeIORef cd_mut new
-                                        rec
+                                isStrLitTy >=> \name' -> Just do
+                                  let new =
+                                        old
+                                          { cd_extractedDict = addToUFM_C const dict name' (kind, value)
+                                          , cd_unextractedDict = dRest
+                                          }
+                                  tcPluginIO $ writeIORef cd_mut new
+                                  rec
                           _ -> Nothing
-                  | tycon == removeTC -> Just do
-                      let [name, rest'] = dargs
-                      myTryFollow name $
-                        isStrLitTy >=> \name' -> Just do
-                          let new =
-                                old
-                                  { cd_removedKeys = removed `addOneToUniqSet` name'
-                                  , cd_unextractedDict = rest'
-                                  }
-                          tcPluginIO $ writeIORef cd_mut new
-                          rec
                   | tycon == endTC -> Just do
                       return ()
                   | tycon == followTC -> Just do
@@ -482,11 +488,13 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                       forM_ dict2Data extractDict
                   | tycon == getTC -> Just do
                       handleGetTC cd_env dargs >>= \case
-                        Just (key, dict', []) -> do
+                        Right (key, dict', []) -> do
                           finishDictElem key dict'
                           (kindOfDict'', dict'') <- getFinishedValue key dict'
                           recNewRest dict''
-                        Nothing -> return ()
+                        Left sub' -> do
+                          let new = old{cd_unextractedDict = sub_result sub'}
+                          tcPluginIO $ writeIORef cd_mut new
                   | otherwise -> Nothing
 
       finishDict ::
@@ -499,7 +507,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
             case nonDetUFMToList dict of
               ((key, (kind, val)) : _) -> do
                 val' <- sub_result <$> substitute cd_env cd_env val
-                d2@(CachedDict dict2 fdict2 _ _) <- tcPluginIO $ readIORef cd_mut
+                d2@(CachedDict dict2 fdict2 _) <- tcPluginIO $ readIORef cd_mut
                 if elemUFM_Directly key dict2
                   then do
                     let d3 =
@@ -523,16 +531,11 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                       | otherwise -> Nothing
 
       dictValues ::
-        UniqSet FastString ->
         CachedDict' ->
         TcPluginM (Maybe [(Type, Type)])
-      dictValues removed CachedDict'{cd_env, cd_mut} = do
+      dictValues CachedDict'{cd_env, cd_mut} = do
         CachedDict{..} <- tcPluginIO (readIORef cd_mut)
-        let values =
-              [ val
-              | (key, val) <- nonDetUFMToList cd_finishedDict
-              , not $ elemUniqSet_Directly key removed
-              ]
+        let values = map snd $ nonDetUFMToList cd_finishedDict
         case sizeUFM cd_extractedDict of
           0 ->
             idTryFollow cd_env (\_ -> return Nothing) cd_unextractedDict $
@@ -545,9 +548,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                       (dict2Sub, dict2Data) <- dictFollow cd_env dict2
                       tcPluginIO $ modifyIORef cd_mut $ \old -> old{cd_unextractedDict = sub_result dict2Sub}
                       case dict2Data of
-                        Just dict2Data' ->
-                          fmap (values ++)
-                            <$> dictValues (unionUniqSets removed cd_removedKeys) dict2Data'
+                        Just dict2Data' -> fmap (values ++) <$> dictValues dict2Data'
                         Nothing -> return Nothing
                   | otherwise -> Nothing
           _ -> return Nothing
@@ -589,6 +590,11 @@ data Substitution = Substitution
   { sub_changeFree :: Bool
   , sub_result :: Type
   }
+unchanged :: Type -> Substitution
+unchanged t = Substitution{sub_changeFree = True, sub_result = t}
+
+changed :: Type -> Substitution
+changed t = Substitution{sub_changeFree = False, sub_result = t}
 
 mtraverseType ::
   Monad m =>

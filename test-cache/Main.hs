@@ -1,25 +1,25 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module Main where
 
-import InversionOfControl.TypeDict
 import Data.Kind
 import GHC.TypeLits
+import InversionOfControl.TypeDict
 
 data Dict1 (d :: * -> *) :: *
 data Dict2 (d :: *) :: *
 data Dict3 :: *
 
-class Ok (x :: *) where
+class Ok (x :: *)
 
 data A :: *
 data B :: *
@@ -30,20 +30,21 @@ instance Ok A
 instance Ok B
 instance Ok C
 
-type instance Definition (Dict1 d) =
-  "bad"
-    :-: Name "xx" (Ok (Get "x" (Follow (d (Dict1 d)))))
-    :+: (Get "cont" (Follow (d Dict3)) :: TypeDict)
+type instance
+  Definition (Dict1 d) =
+    Name "xx" (Ok (Get "x" (Follow (d (Dict1 d)))))
+      :+: (Get "cont" (Follow (d Dict3)) :: TypeDict)
 
-type instance Definition (Dict2 d) =
-  Name "x" A
-    :+: Name "cont" (Name "y" (Ok B) :+: Follow d)
-    :+: End
+type instance
+  Definition (Dict2 d) =
+    Name "x" A
+      :+: Name "cont" (Name "y" (Ok B) :+: Follow d)
+      :+: End
 
-type instance Definition Dict3 =
-  Name "z" (Ok C)
-    :+: Name "bad" (Ok D)
-    :+: End
+type instance
+  Definition Dict3 =
+    Name "z" (Ok C)
+      :+: End
 
 main :: IO ()
 main = fun @Dict2
