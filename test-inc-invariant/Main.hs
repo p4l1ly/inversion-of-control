@@ -77,9 +77,6 @@ type instance Definition (HighFnI d d1 m) =
 type HighFnD (d :: *) (m :: * -> *) =
   HighFnI d (HighFnA d) m
 
-data LiftUp d
-type instance Definition (LiftUp d) = Name "lift" () :+: Follow d
-
 highFn ::
   forall d d1 m.
   ToConstraint (Follow (HighFnI d d1 m)) =>

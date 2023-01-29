@@ -35,6 +35,9 @@ type family Follow :: * -> k
 
 type family LiftsUntil (key :: Symbol) (dict :: TypeDict) :: Pean
 
+data LiftUp d
+type instance Definition (LiftUp d) = Name "lift" () :+: Follow d
+
 g :: QuasiQuoter
 g =
   QuasiQuoter

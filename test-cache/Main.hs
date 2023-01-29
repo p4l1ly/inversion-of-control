@@ -81,9 +81,6 @@ funLift ::
   IO ()
 funLift = return ()
 
-data LiftUp d
-type instance Definition (LiftUp d) = Name "lift" () :+: Follow d
-
 funDeep ::
   forall d.
   ( Get "x" (Follow (LiftUp d)) ~ Get "x" (Follow d)
