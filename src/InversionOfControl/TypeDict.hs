@@ -35,9 +35,6 @@ type family Follow :: * -> k
 
 type family LiftsUntil (key :: Symbol) (dict :: TypeDict) :: Pean
 
--- TODO Let solver know the following rule:
--- GetK key (d (Succ n)) = Inc (GetK key (d n))
-
 g :: QuasiQuoter
 g =
   QuasiQuoter
@@ -78,23 +75,22 @@ g2 =
     }
 
 -- TODO is this useful?
-gcn :: QuasiQuoter
-gcn =
+gc :: QuasiQuoter
+gc =
   QuasiQuoter
     { quoteType = \tag -> do
         d <- lookupTypeName "d"
         c <- lookupTypeName "cont"
-        n <- lookupTypeName "n"
-        case (d, c, n) of
-          (Just d, Just c, Just n) ->
+        case (d, c) of
+          (Just d, Just c) ->
             return $
               AppT
                 (AppT (ConT ''Get) (LitT (StrTyLit tag)))
-                (AppT (ConT ''Follow) (AppT (AppT (VarT d) (VarT c)) (VarT n)))
-          _ -> error "gcn: type d, cont or n not in scope"
-    , quoteExp = error "gcn can quote only types"
-    , quoteDec = error "gcn can quote only types"
-    , quotePat = error "gcn can quote only types"
+                (AppT (ConT ''Follow) (AppT (VarT d) (VarT c)))
+          _ -> error "gc: type d, cont or n not in scope"
+    , quoteExp = error "gc can quote only types"
+    , quoteDec = error "gc can quote only types"
+    , quotePat = error "gc can quote only types"
     }
 
 gs :: QuasiQuoter
@@ -105,4 +101,80 @@ gs =
     , quoteExp = error "gs can quote only types"
     , quoteDec = error "gs can quote only types"
     , quotePat = error "gs can quote only types"
+    }
+
+k :: QuasiQuoter
+k =
+  QuasiQuoter
+    { quoteType = \tag -> do
+        d <- lookupTypeName "d"
+        case d of
+          Just d ->
+            return $
+              AppT
+                ( AppT
+                    (ConT 'K)
+                    (AppT (AppT (ConT ''LiftsUntil) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
+                )
+                (AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
+          Nothing -> error "k: type d not in scope"
+    , quoteExp = error "k can quote only types"
+    , quoteDec = error "k can quote only types"
+    , quotePat = error "k can quote only types"
+    }
+
+k1 :: QuasiQuoter
+k1 =
+  QuasiQuoter
+    { quoteType = \tag -> do
+        d <- lookupTypeName "d1"
+        case d of
+          Just d ->
+            return $
+              AppT
+                ( AppT
+                    (ConT 'K)
+                    (AppT (AppT (ConT ''LiftsUntil) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
+                )
+                (AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
+          Nothing -> error "k1: type d1 not in scope"
+    , quoteExp = error "k1 can quote only types"
+    , quoteDec = error "k1 can quote only types"
+    , quotePat = error "k1 can quote only types"
+    }
+
+k2 :: QuasiQuoter
+k2 =
+  QuasiQuoter
+    { quoteType = \tag -> do
+        d <- lookupTypeName "d2"
+        case d of
+          Just d ->
+            return $
+              AppT
+                ( AppT
+                    (ConT 'K)
+                    (AppT (AppT (ConT ''LiftsUntil) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
+                )
+                (AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
+          Nothing -> error "k2: type d2 not in scope"
+    , quoteExp = error "k2 can quote only types"
+    , quoteDec = error "k2 can quote only types"
+    , quotePat = error "k2 can quote only types"
+    }
+
+ks :: QuasiQuoter
+ks =
+  QuasiQuoter
+    { quoteType = \tag -> do
+        return $
+          AppT
+            ( AppT
+                (ConT 'K)
+                (AppT (AppT (ConT ''LiftsUntil) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (ConT ''Self)))
+            )
+            (AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (ConT ''Self)))
+    , quoteExp = error "ks can quote only types"
+    , quoteDec = error "ks can quote only types"
+    , quotePat = error "ks can quote only types"
     }

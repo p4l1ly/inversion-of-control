@@ -17,10 +17,9 @@
 
 module Main where
 
-import InversionOfControl.Lift (K (K), Inherit, Pean (Zero))
-import InversionOfControl.MonadFn (Explicit, MonadFn (monadfn), MonadFn0(monadfn0))
+import InversionOfControl.Lift
+import InversionOfControl.MonadFn
 import InversionOfControl.TypeDict
-  (Named (Name), ToConstraint, TypeDict (End, (:+:)), Definition, g, g1, Follow, Get)
 
 data Even
 data Odd
@@ -31,39 +30,39 @@ instance MonadFn0 (Explicit Int Bool Even) IO where
 instance MonadFn0 (Explicit Int Bool Odd) IO where
   monadfn0 = return . odd
 
-data OptionsD (lifts :: Pean)
+data OptionsD
 
-type instance Definition (OptionsD lifts) =
-      Name "k01" ('K lifts Even)
-  :+: Name "k02" ('K lifts Even)
-  :+: Name "k03" ('K lifts Even)
-  :+: Name "k04" ('K lifts Even)
-  :+: Name "k05" ('K lifts Even)
-  :+: Name "k06" ('K lifts Even)
-  :+: Name "k07" ('K lifts Even)
-  :+: Name "k08" ('K lifts Even)
-  :+: Name "k09" ('K lifts Even)
-  :+: Name "k10" ('K lifts Even)
-  :+: Name "k11" ('K lifts Even)
-  :+: Name "k12" ('K lifts Even)
-  :+: Name "k13" ('K lifts Even)
-  :+: Name "k14" ('K lifts Even)
-  :+: Name "k15" ('K lifts Even)
-  :+: Name "k16" ('K lifts Even)
-  :+: Name "k17" ('K lifts Even)
-  :+: Name "k18" ('K lifts Even)
-  :+: Name "k19" ('K lifts Even)
-  :+: Name "k20" ('K lifts Even)
-  :+: Name "k21" ('K lifts Even)
-  :+: Name "k22" ('K lifts Even)
-  :+: Name "k23" ('K lifts Even)
-  :+: Name "k24" ('K lifts Even)
-  :+: Name "k25" ('K lifts Even)
-  :+: Name "k26" ('K lifts Even)
-  :+: Name "k27" ('K lifts Even)
-  :+: Name "k28" ('K lifts Even)
-  :+: Name "k29" ('K lifts Even)
-  :+: Name "k30" ('K lifts Even)
+type instance Definition OptionsD =
+      Name "k01" Even
+  :+: Name "k02" Even
+  :+: Name "k03" Even
+  :+: Name "k04" Even
+  :+: Name "k05" Even
+  :+: Name "k06" Even
+  :+: Name "k07" Even
+  :+: Name "k08" Even
+  :+: Name "k09" Even
+  :+: Name "k10" Even
+  :+: Name "k11" Even
+  :+: Name "k12" Even
+  :+: Name "k13" Even
+  :+: Name "k14" Even
+  :+: Name "k15" Even
+  :+: Name "k16" Even
+  :+: Name "k17" Even
+  :+: Name "k18" Even
+  :+: Name "k19" Even
+  :+: Name "k20" Even
+  :+: Name "k21" Even
+  :+: Name "k22" Even
+  :+: Name "k23" Even
+  :+: Name "k24" Even
+  :+: Name "k25" Even
+  :+: Name "k26" Even
+  :+: Name "k27" Even
+  :+: Name "k28" Even
+  :+: Name "k29" Even
+  :+: Name "k30" Even
   :+: End
 
 main :: IO ()
@@ -71,36 +70,36 @@ main = hardToCompileFn @OptionsD
 
 data HardToCompileFnA (d :: *)
 type instance Definition (HardToCompileFnA d) =
-      Name "k01" (Inherit (Explicit Int Bool) [g|k01|])
-  :+: Name "k02" (Inherit (Explicit Int Bool) [g|k02|])
-  :+: Name "k03" (Inherit (Explicit Int Bool) [g|k03|])
-  :+: Name "k04" (Inherit (Explicit Int Bool) [g|k04|])
-  :+: Name "k05" (Inherit (Explicit Int Bool) [g|k05|])
-  :+: Name "k06" (Inherit (Explicit Int Bool) [g|k06|])
-  :+: Name "k07" (Inherit (Explicit Int Bool) [g|k07|])
-  :+: Name "k08" (Inherit (Explicit Int Bool) [g|k08|])
-  :+: Name "k09" (Inherit (Explicit Int Bool) [g|k09|])
-  :+: Name "k10" (Inherit (Explicit Int Bool) [g|k10|])
-  :+: Name "k11" (Inherit (Explicit Int Bool) [g|k11|])
-  :+: Name "k12" (Inherit (Explicit Int Bool) [g|k12|])
-  :+: Name "k13" (Inherit (Explicit Int Bool) [g|k13|])
-  :+: Name "k14" (Inherit (Explicit Int Bool) [g|k14|])
-  :+: Name "k15" (Inherit (Explicit Int Bool) [g|k15|])
-  :+: Name "k16" (Inherit (Explicit Int Bool) [g|k16|])
-  :+: Name "k17" (Inherit (Explicit Int Bool) [g|k17|])
-  :+: Name "k18" (Inherit (Explicit Int Bool) [g|k18|])
-  :+: Name "k19" (Inherit (Explicit Int Bool) [g|k19|])
-  :+: Name "k20" (Inherit (Explicit Int Bool) [g|k20|])
-  :+: Name "k21" (Inherit (Explicit Int Bool) [g|k21|])
-  :+: Name "k22" (Inherit (Explicit Int Bool) [g|k22|])
-  :+: Name "k23" (Inherit (Explicit Int Bool) [g|k23|])
-  :+: Name "k24" (Inherit (Explicit Int Bool) [g|k24|])
-  :+: Name "k25" (Inherit (Explicit Int Bool) [g|k25|])
-  :+: Name "k26" (Inherit (Explicit Int Bool) [g|k26|])
-  :+: Name "k27" (Inherit (Explicit Int Bool) [g|k27|])
-  :+: Name "k28" (Inherit (Explicit Int Bool) [g|k28|])
-  :+: Name "k29" (Inherit (Explicit Int Bool) [g|k29|])
-  :+: Name "k30" (Inherit (Explicit Int Bool) [g|k30|])
+      Name "k01" (Inherit (Explicit Int Bool) [k|k01|])
+  :+: Name "k02" (Inherit (Explicit Int Bool) [k|k02|])
+  :+: Name "k03" (Inherit (Explicit Int Bool) [k|k03|])
+  :+: Name "k04" (Inherit (Explicit Int Bool) [k|k04|])
+  :+: Name "k05" (Inherit (Explicit Int Bool) [k|k05|])
+  :+: Name "k06" (Inherit (Explicit Int Bool) [k|k06|])
+  :+: Name "k07" (Inherit (Explicit Int Bool) [k|k07|])
+  :+: Name "k08" (Inherit (Explicit Int Bool) [k|k08|])
+  :+: Name "k09" (Inherit (Explicit Int Bool) [k|k09|])
+  :+: Name "k10" (Inherit (Explicit Int Bool) [k|k10|])
+  :+: Name "k11" (Inherit (Explicit Int Bool) [k|k11|])
+  :+: Name "k12" (Inherit (Explicit Int Bool) [k|k12|])
+  :+: Name "k13" (Inherit (Explicit Int Bool) [k|k13|])
+  :+: Name "k14" (Inherit (Explicit Int Bool) [k|k14|])
+  :+: Name "k15" (Inherit (Explicit Int Bool) [k|k15|])
+  :+: Name "k16" (Inherit (Explicit Int Bool) [k|k16|])
+  :+: Name "k17" (Inherit (Explicit Int Bool) [k|k17|])
+  :+: Name "k18" (Inherit (Explicit Int Bool) [k|k18|])
+  :+: Name "k19" (Inherit (Explicit Int Bool) [k|k19|])
+  :+: Name "k20" (Inherit (Explicit Int Bool) [k|k20|])
+  :+: Name "k21" (Inherit (Explicit Int Bool) [k|k21|])
+  :+: Name "k22" (Inherit (Explicit Int Bool) [k|k22|])
+  :+: Name "k23" (Inherit (Explicit Int Bool) [k|k23|])
+  :+: Name "k24" (Inherit (Explicit Int Bool) [k|k24|])
+  :+: Name "k25" (Inherit (Explicit Int Bool) [k|k25|])
+  :+: Name "k26" (Inherit (Explicit Int Bool) [k|k26|])
+  :+: Name "k27" (Inherit (Explicit Int Bool) [k|k27|])
+  :+: Name "k28" (Inherit (Explicit Int Bool) [k|k28|])
+  :+: Name "k29" (Inherit (Explicit Int Bool) [k|k29|])
+  :+: Name "k30" (Inherit (Explicit Int Bool) [k|k30|])
   :+: End
 
 data HardToCompileFnD (d1 :: *)
@@ -139,7 +138,7 @@ type instance Definition (HardToCompileFnD d1) =
 
 hardToCompileFn ::
   forall d d1.
-  ( d1 ~ HardToCompileFnA (d Zero)
+  ( d1 ~ HardToCompileFnA d
   , ToConstraint (Follow (HardToCompileFnD d1))
   ) =>
   IO ()
