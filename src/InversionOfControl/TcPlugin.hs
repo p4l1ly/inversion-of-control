@@ -1,9 +1,10 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -15,6 +16,7 @@ import Control.Monad
 import Control.Monad.Identity
 import Data.Functor
 import qualified Data.HashMap.Strict as M
+import Data.Hashable
 import Data.IORef
 import Data.Maybe
 import Data.Traversable (for)
@@ -31,6 +33,7 @@ import GHC.Core.Type
 import GHC.Data.FastString (fsLit)
 import GHC.Driver.Config.Finder (initFinderOpts)
 import GHC.Driver.Plugins (Plugin (..), defaultPlugin, purePlugin)
+import GHC.Generics
 import GHC.Plugins
 import GHC.Stack
 import GHC.Tc.Instance.Family
@@ -83,6 +86,7 @@ data CachedDict' = CachedDict'
 data LiftDict = LiftDict
   { ld_extractedDict :: UniqFM FastString Int
   , ld_unextractedDict :: Type
+  , ld_unextractedN :: Int
   }
 
 data LiftDict' = LiftDict'
@@ -99,8 +103,8 @@ data ExtraDefs = ExtraDefs
   , selfTC :: TyCon
   , defTC :: TyCon
   , typeDictT :: Type
-  , cache :: IORef (M.HashMap [(Bool, Int)] CachedDict')
-  , ld_cache :: IORef (M.HashMap [(Bool, Int)] LiftDict')
+  , cache :: IORef (M.HashMap [DictKeyElem] CachedDict')
+  , ld_cache :: IORef (M.HashMap [DictKeyElem] LiftDict')
   , liftsUntilTC :: TyCon
   , succTC :: TyCon
   , zeroT :: Type
@@ -176,22 +180,30 @@ tryFollow followerUFM stucked x deCon fn = rec x
 idTryFollow :: UniqFM TyVar Type -> (Type -> p) -> Type -> (Type -> Maybe p) -> p
 idTryFollow followerUFM stucked x deCon = tryFollow followerUFM stucked x deCon id
 
-getDictKey :: FollowerUFM -> Type -> TcPluginM (Substitution, Maybe [(Bool, Int)])
+data DictKeyElem
+  = DictKeyTyCon Int
+  | DictKeyVar Int
+  | DictKeyLit FastString
+  deriving (Eq, Generic, Hashable)
+
+instance Hashable FastString where
+  hashWithSalt g str = hashWithSalt g (uniqueOfFS str)
+  hash str = hash $ uniqueOfFS str
+
+getDictKey :: FollowerUFM -> Type -> TcPluginM (Substitution, Maybe [DictKeyElem])
 getDictKey followerUFM t =
   idTryFollow followerUFM stucked t $ \x ->
-    ( splitTyConApp_maybe x >>= \case
-        (tycon, args) | isFamFreeTyCon tycon -> Just do
-          args' <- mapM (getDictKey followerUFM) args
-          return
-            ( Substitution
-                { sub_changeFree = all (sub_changeFree . fst) args'
-                , sub_result = mkTyConApp tycon $ map (sub_result . fst) args'
-                }
-            , case mapM snd args' of
-                Nothing -> Nothing
-                Just args'' -> Just $ (False, getKey (getUnique tycon)) : concat args''
-            )
-        _ -> Nothing
+    ( splitTyConApp_maybe x >>= \(tycon, args) -> Just do
+        args' <- mapM (getDictKey followerUFM) args
+        return
+          ( Substitution
+              { sub_changeFree = all (sub_changeFree . fst) args'
+              , sub_result = mkTyConApp tycon $ map (sub_result . fst) args'
+              }
+          , case mapM snd args' of
+              Nothing -> Nothing
+              Just args'' -> Just $ DictKeyTyCon (getKey (getUnique tycon)) : concat args''
+          )
     )
       <|> ( splitAppTy_maybe x >>= \case
               (x', ty) -> Just do
@@ -211,13 +223,26 @@ getDictKey followerUFM t =
       Just var ->
         return
           ( Substitution{sub_changeFree = True, sub_result = t'}
-          , Just [(True, getKey (getUnique var))]
+          , Just [DictKeyVar $ getKey (getUnique var)]
           )
-      _ ->
-        return
-          ( Substitution{sub_changeFree = True, sub_result = t'}
-          , Nothing
-          )
+      Nothing ->
+        case isStrLitTy t' of
+          Just str ->
+            return
+              ( Substitution{sub_changeFree = True, sub_result = t'}
+              , Just [DictKeyLit str]
+              )
+          Nothing -> do
+            return
+              ( Substitution{sub_changeFree = True, sub_result = t'}
+              , Nothing
+              )
+
+parseFollowTCArgs :: [Type] -> (Type -> [Type], Type)
+parseFollowTCArgs dargs = case dargs of
+  [k, dict2] -> (\d -> [k, d], dict2)
+  [dict2] -> ((: []), dict2)
+  _ -> error $ "followTC: unexpected dargs " ++ showPprUnsafe (ppr dargs)
 
 solve :: Opts -> ExtraDefs -> EvBindsVar -> [Ct] -> [Ct] -> TcPluginM TcPluginSolveResult
 solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
@@ -245,7 +270,8 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
         (sub, dictKey) <- getDictKey followerUFM dict
         (sub,)
           <$> case dictKey of
-            Nothing -> return Nothing
+            Nothing -> do
+              return Nothing
             Just dictKey' -> do
               cache' <- tcPluginIO $ readIORef cache
               case M.lookup dictKey' cache' of
@@ -268,7 +294,8 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                     let newDict = CachedDict'{cd_env = followerUFM', cd_mut = dictRef}
                     tcPluginIO do writeIORef cache (M.insert dictKey' newDict cache')
                     return $ Just newDict
-                  Nothing -> return Nothing
+                  Nothing -> do
+                    return Nothing
 
   let liftDictFollow :: FollowerUFM -> Type -> TcPluginM (Substitution, Maybe LiftDict')
       liftDictFollow followerUFM dict = do
@@ -293,6 +320,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                         LiftDict
                           { ld_extractedDict = emptyUFM
                           , ld_unextractedDict = sub_result $ runIdentity definition
+                          , ld_unextractedN = 0
                           }
                     let newDict = LiftDict'{ld_env = followerUFM', ld_mut = dictRef}
                     tcPluginIO do writeIORef ld_cache (M.insert dictKey' newDict cache')
@@ -383,6 +411,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                   LiftDict
                     { ld_extractedDict = emptyUFM
                     , ld_unextractedDict = dictT
+                    , ld_unextractedN = 0
                     }
               let dict = LiftDict'{ld_env = followerUFM, ld_mut = ld_mut}
               let dictTSub = Substitution{sub_result = dictT, sub_changeFree = True}
@@ -403,13 +432,13 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
           isStrLitTy >=> \key -> Just do goWithKey key
 
       countLiftsUntilKey :: FastString -> LiftDict' -> Substitution -> Bool -> TcPluginM (Either (Int, Substitution) Int)
-      countLiftsUntilKey key old'@LiftDict'{ld_env, ld_mut} sub followed = rec sub 0
+      countLiftsUntilKey key old'@LiftDict'{ld_env, ld_mut} sub followed = rec sub
         where
-          rec :: Substitution -> Int -> TcPluginM (Either (Int, Substitution) Int)
-          rec sub n = do
-            old@(LiftDict dict rest) <- tcPluginIO $ readIORef ld_mut
+          rec :: Substitution -> TcPluginM (Either (Int, Substitution) Int)
+          rec sub = do
+            old@(LiftDict dict rest n) <- tcPluginIO $ readIORef ld_mut
             case lookupUFM dict key of
-              Just n -> return $ Right n
+              Just n' -> return $ Right n'
               Nothing -> do
                 let rec' rest'
                       | followed = rec sub
@@ -433,22 +462,25 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                                                 { ld_extractedDict = addToUFM dict name' n
                                                 , ld_unextractedDict = dRest
                                                 }
-                                        tcPluginIO $ writeIORef ld_mut new
                                         case () of
                                           _
-                                            | name' == key -> return $ Right n
-                                            | name' == liftStr -> rec' dRest (n + 1)
-                                            | otherwise -> rec' dRest n
+                                            | name' == key -> do
+                                                tcPluginIO $ writeIORef ld_mut new
+                                                return $ Right n
+                                            | name' == liftStr -> do
+                                                let new' = new{ld_unextractedN = n + 1}
+                                                tcPluginIO $ writeIORef ld_mut new'
+                                                rec' dRest
+                                            | otherwise -> do
+                                                tcPluginIO $ writeIORef ld_mut new
+                                                rec' dRest
                               _ -> Nothing
                       | tycon == endTC -> Just do
                           error $ "Get: element not found " ++ showPprUnsafe (ppr key)
                       | tycon == followTC -> Just do
-                          let (prependKind, dict2) = case dargs of
-                                [k, dict2] -> ((k :), dict2)
-                                [dict2] -> (id, dict2)
-                                _ -> error $ "followTC: unexpected dargs " ++ showPprUnsafe (ppr dargs)
+                          let (prependKind, dict2) = parseFollowTCArgs dargs
                           (dict2Sub, dict2Data) <- liftDictFollow ld_env dict2
-                          let followDict2SubR = TyConApp followTC $ prependKind [sub_result dict2Sub]
+                          let followDict2SubR = TyConApp followTC $ prependKind $ sub_result dict2Sub
                           let sub2 =
                                 Substitution
                                   { sub_changeFree = sub_changeFree sub && sub_changeFree dict2Sub && not followed
@@ -468,7 +500,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                               finishDictElem key dict'
                               (kindOfDict'', dict'') <- getFinishedValue key dict'
                               tcPluginIO $ writeIORef ld_mut old{ld_unextractedDict = dict''}
-                              rec' dict'' n
+                              rec' dict''
                             Left sub' ->
                               Left
                                 <$> if sub_changeFree sub'
@@ -517,12 +549,9 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                           | tycon == endTC -> Just do
                               error $ "Get: element not found " ++ showPprUnsafe (ppr key)
                           | tycon == followTC -> Just do
-                              let (prependKind, dict2) = case dargs of
-                                    [k, dict2] -> ((k :), dict2)
-                                    [dict2] -> (id, dict2)
-                                    _ -> error $ "followTC: unexpected dargs " ++ showPprUnsafe (ppr dargs)
+                              let (prependKind, dict2) = parseFollowTCArgs dargs
                               (dict2Sub, dict2Data) <- dictFollow cd_env dict2
-                              let followDict2SubR = TyConApp followTC $ prependKind [sub_result dict2Sub]
+                              let followDict2SubR = TyConApp followTC $ prependKind $ sub_result dict2Sub
                               let sub2 =
                                     Substitution
                                       { sub_changeFree = sub_changeFree sub && sub_changeFree dict2Sub && not followed
@@ -608,13 +637,10 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                   | tycon == endTC -> Just do
                       return ()
                   | tycon == followTC -> Just do
-                      let dict2 = case dargs of
-                            [k, dict2] -> dict2
-                            [dict2] -> dict2
-                            _ -> error $ "followTC: unexpected dargs " ++ showPprUnsafe (ppr dargs)
+                      let (prependKind, dict2) = parseFollowTCArgs dargs
                       (dict2Sub, dict2Data) <- dictFollow cd_env dict2
                       tcPluginIO $ modifyIORef cd_mut $ \old ->
-                        old{cd_unextractedDict = mkTyConApp followTC [sub_result dict2Sub]}
+                        old{cd_unextractedDict = TyConApp followTC $ prependKind $ sub_result dict2Sub}
                       forM_ dict2Data extractDict
                   | tycon == getTC -> Just do
                       handleGetTC cd_env dargs >>= \case
@@ -653,10 +679,10 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                   splitTyConApp_maybe >=> \case
                     (tycon, dargs)
                       | tycon == followTC -> Just do
-                          let [dict2] = dargs
+                          let (prependKind, dict2) = parseFollowTCArgs dargs
                           (dict2Sub, dict2Data) <- dictFollow cd_env dict2
                           tcPluginIO $ modifyIORef cd_mut $ \old ->
-                            old{cd_unextractedDict = mkTyConApp followTC [sub_result dict2Sub]}
+                            old{cd_unextractedDict = mkTyConApp followTC $ prependKind $ sub_result dict2Sub}
                           forM_ dict2Data finishDict
                       | otherwise -> Nothing
 
@@ -674,9 +700,10 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                   | tycon == endTC -> Just do
                       return $ Just values
                   | tycon == followTC -> Just do
-                      let [dict2] = dargs
+                      let (prependKind, dict2) = parseFollowTCArgs dargs
                       (dict2Sub, dict2Data) <- dictFollow cd_env dict2
-                      tcPluginIO $ modifyIORef cd_mut $ \old -> old{cd_unextractedDict = sub_result dict2Sub}
+                      tcPluginIO $ modifyIORef cd_mut $ \old ->
+                        old{cd_unextractedDict = mkTyConApp followTC $ prependKind $ sub_result dict2Sub}
                       case dict2Data of
                         Just dict2Data' -> fmap (values ++) <$> dictValues dict2Data'
                         Nothing -> return Nothing

@@ -57,7 +57,14 @@ fun :: forall d. ToConstraint (Follow (Dict1 d)) => IO ()
 fun = return ()
 
 data E
-type instance Definition E = Name "lift" () :+: Name "k" () :+: End
+type instance
+  Definition E =
+    Name "lift" ()
+      :+: Name "k" ()
+      :+: Name "x" ()
+      :+: Name "y" ()
+      :+: Name "z" ()
+      :+: End
 
 funLift ::
   ( LiftsUntil "k" (Name "k" () :+: End) ~ Zero
@@ -77,6 +84,9 @@ funLift ::
           :+: Follow E
       )
       ~ Succ (Succ Zero)
+  , LiftsUntil "y" (Follow E) ~ Succ Zero
+  , LiftsUntil "z" (Follow E) ~ Succ Zero
+  , LiftsUntil "x" (Follow E) ~ Succ Zero
   ) =>
   IO ()
 funLift = return ()
