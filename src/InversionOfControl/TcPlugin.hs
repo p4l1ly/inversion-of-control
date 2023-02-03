@@ -366,7 +366,8 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                             [] -> t
                             _ -> mkAppTys t otherArgs
                         }
-                  Left sub -> return sub
+                  Left sub -> do
+                    return sub
             | tycon == liftsUntilTC -> do
                 handleLiftsUntilTC followerUFM args >>= \case
                   Right n -> do
@@ -479,7 +480,9 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                           error $ "Get: element not found " ++ showPprUnsafe (ppr key)
                       | tycon == followTC -> Just do
                           let (prependKind, dict2) = parseFollowTCArgs dargs
-                          (dict2Sub, dict2Data) <- liftDictFollow ld_env dict2
+                          dict2Sub0 <- substitute ld_env ld_env dict2
+                          (dict2Sub1, dict2Data) <- liftDictFollow ld_env (sub_result dict2Sub0)
+                          let dict2Sub = dict2Sub1{sub_changeFree = sub_changeFree dict2Sub1 && sub_changeFree dict2Sub0}
                           let followDict2SubR = TyConApp followTC $ prependKind $ sub_result dict2Sub
                           let sub2 =
                                 Substitution
@@ -550,7 +553,9 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                               error $ "Get: element not found " ++ showPprUnsafe (ppr key)
                           | tycon == followTC -> Just do
                               let (prependKind, dict2) = parseFollowTCArgs dargs
-                              (dict2Sub, dict2Data) <- dictFollow cd_env dict2
+                              dict2Sub0 <- substitute cd_env cd_env dict2
+                              (dict2Sub1, dict2Data) <- dictFollow cd_env (sub_result dict2Sub0)
+                              let dict2Sub = dict2Sub1{sub_changeFree = sub_changeFree dict2Sub1 && sub_changeFree dict2Sub0}
                               let followDict2SubR = TyConApp followTC $ prependKind $ sub_result dict2Sub
                               let sub2 =
                                     Substitution
@@ -638,7 +643,9 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                       return ()
                   | tycon == followTC -> Just do
                       let (prependKind, dict2) = parseFollowTCArgs dargs
-                      (dict2Sub, dict2Data) <- dictFollow cd_env dict2
+                      dict2Sub0 <- substitute cd_env cd_env dict2
+                      (dict2Sub1, dict2Data) <- dictFollow cd_env (sub_result dict2Sub0)
+                      let dict2Sub = dict2Sub1{sub_changeFree = sub_changeFree dict2Sub1 && sub_changeFree dict2Sub0}
                       tcPluginIO $ modifyIORef cd_mut $ \old ->
                         old{cd_unextractedDict = TyConApp followTC $ prependKind $ sub_result dict2Sub}
                       forM_ dict2Data extractDict
@@ -680,7 +687,9 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                     (tycon, dargs)
                       | tycon == followTC -> Just do
                           let (prependKind, dict2) = parseFollowTCArgs dargs
-                          (dict2Sub, dict2Data) <- dictFollow cd_env dict2
+                          dict2Sub0 <- substitute cd_env cd_env dict2
+                          (dict2Sub1, dict2Data) <- dictFollow cd_env (sub_result dict2Sub0)
+                          let dict2Sub = dict2Sub1{sub_changeFree = sub_changeFree dict2Sub1 && sub_changeFree dict2Sub0}
                           tcPluginIO $ modifyIORef cd_mut $ \old ->
                             old{cd_unextractedDict = mkTyConApp followTC $ prependKind $ sub_result dict2Sub}
                           forM_ dict2Data finishDict
@@ -701,7 +710,9 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                       return $ Just values
                   | tycon == followTC -> Just do
                       let (prependKind, dict2) = parseFollowTCArgs dargs
-                      (dict2Sub, dict2Data) <- dictFollow cd_env dict2
+                      dict2Sub0 <- substitute cd_env cd_env dict2
+                      (dict2Sub1, dict2Data) <- dictFollow cd_env (sub_result dict2Sub0)
+                      let dict2Sub = dict2Sub1{sub_changeFree = sub_changeFree dict2Sub1 && sub_changeFree dict2Sub0}
                       tcPluginIO $ modifyIORef cd_mut $ \old ->
                         old{cd_unextractedDict = mkTyConApp followTC $ prependKind $ sub_result dict2Sub}
                       case dict2Data of
