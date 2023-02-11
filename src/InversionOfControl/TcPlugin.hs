@@ -329,6 +329,11 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
 
   let substitute :: FollowerUFM -> FollowerUFM -> Type -> TcPluginM Substitution
       substitute traverseUFM followerUFM t = do
+        -- tcPluginIO $ putStrLn $ "subBegin\n" ++ showPprUnsafe (ppr t)
+        -- ( \sub -> do
+        --     tcPluginIO $ putStrLn $ "subEnd\n" ++ showPprUnsafe (ppr t $$ ppr (sub_result sub))
+        --     return sub
+        --   )
         case splitTyConApp_maybe t of
           Just (tycon, args)
             | tycon == toConstraintTC -> do
@@ -355,7 +360,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                     return Substitution{sub_changeFree = False, sub_result = constr}
                   Nothing -> stucked
             | tycon == getTC -> do
-                handleGetTC followerUFM args >>= \case
+                handleGetTC traverseUFM followerUFM args >>= \case
                   Right (key, dict', otherArgs) -> do
                     finishDictElem key dict'
                     (kind, t) <- getFinishedValue key dict'
@@ -364,7 +369,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                         { sub_changeFree = False
                         , sub_result = case otherArgs of
                             [] -> t
-                            _ -> mkAppTys t otherArgs
+                            _ -> mkAppTys t (map sub_result otherArgs)
                         }
                   Left sub -> do
                     return sub
@@ -379,8 +384,8 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
         where
           stucked = mtraverseType traverseUFM (substitute traverseUFM followerUFM) t
 
-      handleGetTC :: FollowerUFM -> [Type] -> TcPluginM (Either Substitution (FastString, CachedDict', [Type]))
-      handleGetTC followerUFM args = do
+      handleGetTC :: FollowerUFM -> FollowerUFM -> [Type] -> TcPluginM (Either Substitution (FastString, CachedDict', [Substitution]))
+      handleGetTC traverseUFM followerUFM args = do
         let (kind : keyT : dictT : otherArgs) = args
         let stucked = unchanged (TyConApp getTC args)
         let goWithKey key = do
@@ -394,10 +399,16 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
               let dict = CachedDict'{cd_env = followerUFM, cd_mut = cd_mut}
               let dictTSub = Substitution{sub_result = dictT, sub_changeFree = True}
 
+              otherArgs' <- for otherArgs (substitute traverseUFM followerUFM)
               extractDictUntilKey key dict dictTSub False <&> \case
-                Left dictTSub' ->
-                  Left dictTSub'{sub_result = TyConApp getTC (kind : keyT : sub_result dictTSub' : otherArgs)}
-                Right dict' -> Right (key, dict', otherArgs)
+                Left dictTSub' -> do
+                  let otherChangeFree = all sub_changeFree otherArgs'
+                  Left
+                    Substitution
+                      { sub_result = TyConApp getTC (kind : keyT : sub_result dictTSub' : map sub_result otherArgs')
+                      , sub_changeFree = sub_changeFree dictTSub' && otherChangeFree
+                      }
+                Right dict' -> Right (key, dict', otherArgs')
 
         idTryFollow followerUFM (\_ -> return $ Left stucked) keyT $
           isStrLitTy >=> \key -> Just do goWithKey key
@@ -498,7 +509,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                                 Right n2 -> return $ Right $ n + n2
                             Nothing -> return $ Left (n, sub2)
                       | tycon == getTC -> Just do
-                          handleGetTC ld_env dargs >>= \case
+                          handleGetTC ld_env ld_env dargs >>= \case
                             Right (key, dict', []) -> do
                               finishDictElem key dict'
                               (kindOfDict'', dict'') <- getFinishedValue key dict'
@@ -568,7 +579,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                                 Just dict2Data' -> extractDictUntilKey key dict2Data' sub2 True
                                 Nothing -> return $ Left sub2
                           | tycon == getTC -> Just do
-                              handleGetTC cd_env dargs >>= \case
+                              handleGetTC cd_env cd_env dargs >>= \case
                                 Right (key, dict', []) -> do
                                   finishDictElem key dict'
                                   (kindOfDict'', dict'') <- getFinishedValue key dict'
@@ -650,7 +661,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                         old{cd_unextractedDict = TyConApp followTC $ prependKind $ sub_result dict2Sub}
                       forM_ dict2Data extractDict
                   | tycon == getTC -> Just do
-                      handleGetTC cd_env dargs >>= \case
+                      handleGetTC cd_env cd_env dargs >>= \case
                         Right (key, dict', []) -> do
                           finishDictElem key dict'
                           (kindOfDict'', dict'') <- getFinishedValue key dict'

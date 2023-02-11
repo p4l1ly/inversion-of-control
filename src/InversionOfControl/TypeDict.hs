@@ -27,6 +27,9 @@ type family ToConstraint (dict :: TypeDict) :: Constraint where
 
 type family Get (key :: Symbol) (dict :: TypeDict) :: k where
 
+type family GetF (key :: Symbol) (dict :: *) :: k where
+  GetF k d = Get k (Follow d)
+
 type family Self :: * where
 
 type family Definition (d :: *) :: k
