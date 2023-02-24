@@ -9,7 +9,7 @@
 module InversionOfControl.LiftN where
 
 import Control.Monad.Trans (MonadTrans (lift))
-import InversionOfControl.Lift (Pean (Succ))
+import InversionOfControl.Lift (Pean (Succ, Zero))
 
 class LiftN (n :: Pean) (m :: * -> *) (m' :: * -> *) where
   liftn :: m a -> m' a
@@ -17,5 +17,5 @@ class LiftN (n :: Pean) (m :: * -> *) (m' :: * -> *) where
 instance (LiftN n m m', MonadTrans mt, Monad m') => LiftN (Succ n) m (mt m') where
   liftn (ma :: m a) = lift (liftn @n @m @m' ma :: m' a)
 
-instance LiftN n m m where
+instance LiftN Zero m m where
   liftn = id
