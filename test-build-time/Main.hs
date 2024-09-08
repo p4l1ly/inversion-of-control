@@ -17,6 +17,7 @@
 
 module Main where
 
+import Data.Kind
 import InversionOfControl.Lift
 import InversionOfControl.MonadFn
 import InversionOfControl.TypeDict
@@ -68,7 +69,7 @@ type instance Definition OptionsD =
 main :: IO ()
 main = hardToCompileFn @OptionsD
 
-data HardToCompileFnA (d :: *)
+data HardToCompileFnA (d :: Type)
 type instance Definition (HardToCompileFnA d) =
       Name "k01" (Inherit (Explicit Int Bool) [k|k01|])
   :+: Name "k02" (Inherit (Explicit Int Bool) [k|k02|])
@@ -102,7 +103,7 @@ type instance Definition (HardToCompileFnA d) =
   :+: Name "k30" (Inherit (Explicit Int Bool) [k|k30|])
   :+: End
 
-data HardToCompileFnD (d1 :: *)
+data HardToCompileFnD (d1 :: Type)
 type instance Definition (HardToCompileFnD d1) =
       Name "k01" (MonadFn [g1|k01|] IO)
   :+: Name "k02" (MonadFn [g1|k02|] IO)

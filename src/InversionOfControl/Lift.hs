@@ -4,12 +4,14 @@
 
 module InversionOfControl.Lift where
 
+import Data.Kind
+
 data Pean = Zero | Succ Pean
 
-data K = K Pean *
+data K = K Pean Type
 data Unreachable
 
-type family Unwrap (x :: K) = (r :: *) where
+type family Unwrap (x :: K) = (r :: Type) where
   Unwrap ('K _ k) = k
 
 type family Inc (k :: K) = (r :: K) where
@@ -18,5 +20,5 @@ type family Inc (k :: K) = (r :: K) where
 type family LiftCount (k :: K) :: Pean where
   LiftCount ('K n _) = n
 
-type family Inherit (mk :: * -> *) (k :: K) :: K where
+type family Inherit (mk :: Type -> Type) (k :: K) :: K where
   Inherit mk k = 'K (LiftCount k) (mk (Unwrap k))

@@ -14,18 +14,19 @@ module InversionOfControl.MonadFn where
 
 import Control.Monad.Trans (MonadTrans (lift))
 import InversionOfControl.Lift (K (K), Pean (Succ, Zero), Unwrap)
+import Data.Kind
 
-type family Param (k :: *) :: *
-type family Result (k :: *) :: *
+type family Param (k :: Type) :: Type
+type family Result (k :: Type) :: Type
 
-data Explicit (a :: *) (b :: *) (k :: *)
+data Explicit (a :: Type) (b :: Type) (k :: Type)
 type instance Param (Explicit a _ _) = a
 type instance Result (Explicit _ b _) = b
 
-class Monad m => MonadFn0 (k :: *) (m :: * -> *) where
+class Monad m => MonadFn0 (k :: Type) (m :: Type -> Type) where
   monadfn0 :: Param k -> m (Result k)
 
-class Monad m => MonadFn (k :: K) (m :: * -> *) where
+class Monad m => MonadFn (k :: K) (m :: Type -> Type) where
   monadfn :: Param (Unwrap k) -> m (Result (Unwrap k))
 
 instance MonadFn0 k m => MonadFn ('K Zero k) m where

@@ -16,16 +16,16 @@ import GHC.TypeLits
 import InversionOfControl.Lift
 import InversionOfControl.TypeDict
 
-data Dict1 (d :: * -> *) :: *
-data Dict2 (d :: *) :: *
-data Dict3 :: *
+data Dict1 (d :: Type -> Type) :: Type
+data Dict2 (d :: Type) :: Type
+data Dict3 :: Type
 
-class Ok (x :: *)
+class Ok (x :: Type)
 
-data A :: *
-data B :: *
-data C :: *
-data D :: *
+data A :: Type
+data B :: Type
+data C :: Type
+data D :: Type
 
 instance Ok A
 instance Ok B

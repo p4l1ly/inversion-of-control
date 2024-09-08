@@ -3,6 +3,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DataKinds #-}
 
 module InversionOfControl.Recur where
 
@@ -10,19 +11,20 @@ import Control.Monad
 import Control.Monad.Trans
 import InversionOfControl.Lift
 import InversionOfControl.LiftN
+import Data.Kind
 -- import Data.Functor.Compose
 
-data Explicit (k :: K) (n' :: Pean) (r :: *) (fr :: *)
+data Explicit (k :: K) (n' :: Pean) (r :: Type) (fr :: Type)
 type family Ek e :: K where
   Ek (Explicit k _ _ _) = k
 type family En' e :: Pean where
   En' (Explicit _ n' _ _) = n'
-type family Er e :: * where
+type family Er e :: Type where
   Er (Explicit _ _ r _) = r
-type family Efr e :: * where
+type family Efr e :: Type where
   Efr (Explicit _ _ _ fr) = fr
 
-type family Et (e :: *) :: (* -> *) -> * -> *
+type family Et (e :: Type) :: (Type -> Type) -> Type -> Type
 
 class (Monad m, MonadTrans (Et e), Monad (Et e m)) => Recur e b m where
   runRecur ::

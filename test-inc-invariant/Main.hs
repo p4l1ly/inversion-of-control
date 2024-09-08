@@ -21,6 +21,7 @@ import InversionOfControl.Lift
 import InversionOfControl.MonadFn
 import InversionOfControl.TypeDict
 import GHC.Types
+import Data.Kind
 
 data Even
 type instance Param Even = Int
@@ -50,7 +51,7 @@ main = do
   (True, False, False) <- highFn @OddDict
   return ()
 
-data HighFnA (d :: *)
+data HighFnA (d :: Type)
 type instance Definition (HighFnA d) =
   -- Kinds must be specified, otherwise weird things happen
   -- (including core lint warnings).
@@ -59,7 +60,7 @@ type instance Definition (HighFnA d) =
     :+: End
   )
 
-data HighFnI (d :: *) (d1 :: *) (m :: * -> *) :: *
+data HighFnI (d :: Type) (d1 :: Type) (m :: Type -> Type) :: Type
 type instance Definition (HighFnI d d1 m) =
   ( Name "all"
       ( d1 ~ HighFnA d
@@ -74,7 +75,7 @@ type instance Definition (HighFnI d d1 m) =
       :+: End
   )
 
-type HighFnD (d :: *) (m :: * -> *) =
+type HighFnD (d :: Type) (m :: Type -> Type) =
   HighFnI d (HighFnA d) m
 
 highFn ::
@@ -87,7 +88,7 @@ highFn = do
     <*> lowFn @d
     <*> runIdentityT (lowFn @(LiftUp d))
 
-data LowFnI (d :: *) (m :: * -> *) :: *
+data LowFnI (d :: Type) (m :: Type -> Type) :: Type
 type instance Definition (LowFnI d m) =
   ( Name "all"
       ( MonadFn [k|k01|] m

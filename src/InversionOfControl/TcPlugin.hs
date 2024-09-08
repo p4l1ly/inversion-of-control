@@ -8,6 +8,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE CPP #-}
 
 module InversionOfControl.TcPlugin where
 
@@ -49,6 +50,7 @@ import qualified GHC.Unit.Finder as Finder
 import GHC.Unit.Module (mkModuleName)
 import GHC.Utils.Misc
 import GHC.Utils.Outputable (Outputable (..), text, ($$), (<+>))
+import Data.Word
 
 plugin :: Plugin
 plugin =
@@ -150,7 +152,11 @@ lookupExtraDefs = do
   return ExtraDefs{..}
 
 mkVarSubst :: Ct -> Maybe (TcTyVar, Type)
+#if MIN_VERSION_ghc(9,8,0)
+mkVarSubst (CEqCan EqCt{eq_lhs, eq_rhs}) | TyVarLHS tyvar <- eq_lhs = Just (tyvar, eq_rhs)
+#else
 mkVarSubst ct@(CEqCan{..}) | TyVarLHS tyvar <- cc_lhs = Just (tyvar, cc_rhs)
+#endif
 mkVarSubst _ = Nothing
 
 liftStr :: FastString
@@ -181,8 +187,13 @@ idTryFollow :: UniqFM TyVar Type -> (Type -> p) -> Type -> (Type -> Maybe p) -> 
 idTryFollow followerUFM stucked x deCon = tryFollow followerUFM stucked x deCon id
 
 data DictKeyElem
+#if MIN_VERSION_ghc(9,10,0)
+  = DictKeyTyCon Word64
+  | DictKeyVar Word64
+#else
   = DictKeyTyCon Int
   | DictKeyVar Int
+#endif
   | DictKeyLit FastString
   deriving (Eq, Generic, Hashable)
 
@@ -782,7 +793,7 @@ mtraverseType ::
   Type ->
   m Substitution
 mtraverseType followUFM fn = \case
-  t | Just t' <- tcView t -> do
+  t | Just t' <- coreView t -> do
     mtraverseType followUFM fn t'
   tv@(TyVarTy v) ->
     case lookupUFM followUFM v of
