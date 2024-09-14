@@ -6,6 +6,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE UnicodeSyntax #-}
 {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
@@ -16,16 +17,16 @@ import GHC.TypeLits
 import InversionOfControl.Lift
 import InversionOfControl.TypeDict
 
-data Dict1 (d :: Type -> Type) :: Type
-data Dict2 (d :: Type) :: Type
-data Dict3 :: Type
+data Dict1 (d ∷ Type → Type) ∷ Type
+data Dict2 (d ∷ Type) ∷ Type
+data Dict3 ∷ Type
 
-class Ok (x :: Type)
+class Ok (x ∷ Type)
 
-data A :: Type
-data B :: Type
-data C :: Type
-data D :: Type
+data A ∷ Type
+data B ∷ Type
+data C ∷ Type
+data D ∷ Type
 
 instance Ok A
 instance Ok B
@@ -34,7 +35,7 @@ instance Ok C
 type instance
   Definition (Dict1 d) =
     Name "xx" (Ok (Get "x" (Follow (d (Dict1 d)))))
-      :+: (Get "cont" (Follow (d Dict3)) :: TypeDict)
+      :+: (Get "cont" (Follow (d Dict3)) ∷ TypeDict)
 
 type instance
   Definition (Dict2 d) =
@@ -47,13 +48,13 @@ type instance
     Name "z" (Ok C)
       :+: End
 
-main :: IO ()
+main ∷ IO ()
 main = do
   fun @Dict2
   funLift
   funDeep
 
-fun :: forall d. ToConstraint (Follow (Dict1 d)) => IO ()
+fun ∷ ∀ d. ToConstraint (Follow (Dict1 d)) ⇒ IO ()
 fun = return ()
 
 data E
@@ -66,35 +67,35 @@ type instance
       :+: Name "z" ()
       :+: End
 
-funLift ::
-  ( LiftsUntil "k" (Name "k" () :+: End) ~ Zero
-  , LiftsUntil
-      "k"
-      ( Name "lift" ()
-          :+: Name "g" Bool
-          :+: Name "lift" ()
-          :+: Name "k" ()
-          :+: End
-      )
-      ~ Succ (Succ Zero)
-  , LiftsUntil
-      "k"
-      ( Name "g" Bool
-          :+: Name "lift" ()
-          :+: Follow E
-      )
-      ~ Succ (Succ Zero)
-  , LiftsUntil "y" (Follow E) ~ Succ Zero
-  , LiftsUntil "z" (Follow E) ~ Succ Zero
-  , LiftsUntil "x" (Follow E) ~ Succ Zero
-  ) =>
-  IO ()
+funLift
+  ∷ ( LiftsUntil "k" (Name "k" () :+: End) ~ Zero
+    , LiftsUntil
+        "k"
+        ( Name "lift" ()
+            :+: Name "g" Bool
+            :+: Name "lift" ()
+            :+: Name "k" ()
+            :+: End
+        )
+        ~ Succ (Succ Zero)
+    , LiftsUntil
+        "k"
+        ( Name "g" Bool
+            :+: Name "lift" ()
+            :+: Follow E
+        )
+        ~ Succ (Succ Zero)
+    , LiftsUntil "y" (Follow E) ~ Succ Zero
+    , LiftsUntil "z" (Follow E) ~ Succ Zero
+    , LiftsUntil "x" (Follow E) ~ Succ Zero
+    )
+  ⇒ IO ()
 funLift = return ()
 
-funDeep ::
-  forall d.
-  ( Get "x" (Follow (LiftUp d)) ~ Get "x" (Follow d)
-  , LiftsUntil "x" (Follow (LiftUp d)) ~ Succ (LiftsUntil "x" (Follow d))
-  ) =>
-  IO ()
+funDeep
+  ∷ ∀ d
+   . ( Get "x" (Follow (LiftUp d)) ~ Get "x" (Follow d)
+     , LiftsUntil "x" (Follow (LiftUp d)) ~ Succ (LiftsUntil "x" (Follow d))
+     )
+  ⇒ IO ()
 funDeep = return ()
