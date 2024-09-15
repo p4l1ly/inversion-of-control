@@ -10,6 +10,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE ConstraintKinds #-}
 -- {-# OPTIONS_GHC -dcore-lint #-}
 -- {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
@@ -104,45 +105,43 @@ type instance
       :+: Name "k30" (Inherit (Explicit Int Bool) [k|k30|])
       :+: End
 
-data HardToCompileFnD (d1 ∷ Type)
-type instance
-  Definition (HardToCompileFnD d1) =
-    Name "k01" (MonadFn [g1|k01|] IO)
-      :+: Name "k02" (MonadFn [g1|k02|] IO)
-      :+: Name "k03" (MonadFn [g1|k03|] IO)
-      :+: Name "k04" (MonadFn [g1|k04|] IO)
-      :+: Name "k05" (MonadFn [g1|k05|] IO)
-      :+: Name "k06" (MonadFn [g1|k06|] IO)
-      :+: Name "k07" (MonadFn [g1|k07|] IO)
-      :+: Name "k08" (MonadFn [g1|k08|] IO)
-      :+: Name "k09" (MonadFn [g1|k09|] IO)
-      :+: Name "k10" (MonadFn [g1|k10|] IO)
-      :+: Name "k11" (MonadFn [g1|k11|] IO)
-      :+: Name "k12" (MonadFn [g1|k12|] IO)
-      :+: Name "k13" (MonadFn [g1|k13|] IO)
-      :+: Name "k14" (MonadFn [g1|k14|] IO)
-      :+: Name "k15" (MonadFn [g1|k15|] IO)
-      :+: Name "k16" (MonadFn [g1|k16|] IO)
-      :+: Name "k17" (MonadFn [g1|k17|] IO)
-      :+: Name "k18" (MonadFn [g1|k18|] IO)
-      :+: Name "k19" (MonadFn [g1|k19|] IO)
-      :+: Name "k20" (MonadFn [g1|k20|] IO)
-      :+: Name "k21" (MonadFn [g1|k21|] IO)
-      :+: Name "k22" (MonadFn [g1|k22|] IO)
-      :+: Name "k23" (MonadFn [g1|k23|] IO)
-      :+: Name "k24" (MonadFn [g1|k24|] IO)
-      :+: Name "k25" (MonadFn [g1|k25|] IO)
-      :+: Name "k26" (MonadFn [g1|k26|] IO)
-      :+: Name "k27" (MonadFn [g1|k27|] IO)
-      :+: Name "k28" (MonadFn [g1|k28|] IO)
-      :+: Name "k29" (MonadFn [g1|k29|] IO)
-      :+: Name "k30" (MonadFn [g1|k30|] IO)
-      :+: End
+type HardToCompileFnD (d1 ∷ Type) =
+  ( MonadFn [g1|k01|] IO
+  , MonadFn [g1|k02|] IO
+  , MonadFn [g1|k03|] IO
+  , MonadFn [g1|k04|] IO
+  , MonadFn [g1|k05|] IO
+  , MonadFn [g1|k06|] IO
+  , MonadFn [g1|k07|] IO
+  , MonadFn [g1|k08|] IO
+  , MonadFn [g1|k09|] IO
+  , MonadFn [g1|k10|] IO
+  , MonadFn [g1|k11|] IO
+  , MonadFn [g1|k12|] IO
+  , MonadFn [g1|k13|] IO
+  , MonadFn [g1|k14|] IO
+  , MonadFn [g1|k15|] IO
+  , MonadFn [g1|k16|] IO
+  , MonadFn [g1|k17|] IO
+  , MonadFn [g1|k18|] IO
+  , MonadFn [g1|k19|] IO
+  , MonadFn [g1|k20|] IO
+  , MonadFn [g1|k21|] IO
+  , MonadFn [g1|k22|] IO
+  , MonadFn [g1|k23|] IO
+  , MonadFn [g1|k24|] IO
+  , MonadFn [g1|k25|] IO
+  , MonadFn [g1|k26|] IO
+  , MonadFn [g1|k27|] IO
+  , MonadFn [g1|k28|] IO
+  , MonadFn [g1|k29|] IO
+  , MonadFn [g1|k30|] IO
+  ) :: Constraint
 
 hardToCompileFn
   ∷ ∀ d d1
    . ( d1 ~ HardToCompileFnA d
-     , ToConstraint (Follow (HardToCompileFnD d1))
+     , HardToCompileFnD d1
      )
   ⇒ IO ()
 hardToCompileFn = do

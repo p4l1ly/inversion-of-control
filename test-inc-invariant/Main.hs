@@ -10,6 +10,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 -- {-# OPTIONS_GHC -dcore-lint #-}
@@ -60,57 +61,30 @@ type instance
   Definition (HighFnA d) =
     -- Kinds must be specified, otherwise weird things happen
     -- (including core lint warnings).
-    ( Name "k03" ([k|k01|] ∷ K)
-        :+: Name "k02" ([gs|k03|] ∷ K)
-        :+: End
-    )
+    Name "k03" ([k|k01|] ∷ K)
+      :+: Name "k02" ([gs|k03|] ∷ K)
+      :+: End
 
-data HighFnI (d ∷ Type) (d1 ∷ Type) (m ∷ Type → Type) ∷ Type
-type instance
-  Definition (HighFnI d d1 m) =
-    ( Name
-        "all"
-        ( d1 ~ HighFnA d
-        , MonadFn [g1|k02|] m
-        , Int ~ Param (Unwrap [g1|k02|])
-        , Bool ~ Result (Unwrap [g1|k02|])
-        )
-        -- Properly written code would also include:
-        --   Follow (LowFnD d m)
-        -- But it is logically not a bug to omit it, as LowFnD is implied by
-        -- HighFnD. We omit it here for testing purposes.
-        :+: End
-    )
+type HighFnI (d ∷ Type) (d1 ∷ Type) (m ∷ Type → Type) =
+  ( d1 ~ HighFnA d
+  , MonadFn' [g1|k02|] Int Bool m
+  -- Commonly, we would add also the following constraints but in this case they can be inferred,
+  -- so we omit them to show that inference works.
+  -- , LowFnD (LiftUp d) (IdentityT m)
+  -- , LowFnD d m
+  )
+    ∷ Constraint
+type HighFnD (d ∷ Type) (m ∷ Type → Type) = HighFnI d (HighFnA d) m
 
-type HighFnD (d ∷ Type) (m ∷ Type → Type) =
-  HighFnI d (HighFnA d) m
-
-highFn
-  ∷ ∀ d d1 m
-   . ToConstraint (Follow (HighFnI d d1 m))
-  ⇒ m (Bool, Bool, Bool)
+highFn ∷ ∀ d d1 m. HighFnI d d1 m ⇒ m (Bool, Bool, Bool)
 highFn = do
   (,,)
     <$> monadfn @[g1|k02|] 5
-    <*> lowFn @d
     <*> runIdentityT (lowFn @(LiftUp d))
+    <*> lowFn @d
 
-data LowFnI (d ∷ Type) (m ∷ Type → Type) ∷ Type
-type instance
-  Definition (LowFnI d m) =
-    ( Name
-        "all"
-        ( MonadFn [k|k01|] m
-        , Int ~ Param (Unwrap [k|k01|])
-        , Bool ~ Result (Unwrap [k|k01|])
-        )
-        :+: End
-    )
-
+type LowFnI (d ∷ Type) (m ∷ Type → Type) = MonadFn' [k|k01|] Int Bool m
 type LowFnD d m = LowFnI d m
 
-lowFn
-  ∷ ∀ d m
-   . ToConstraint (Follow (LowFnI d m))
-  ⇒ m Bool
+lowFn ∷ ∀ d m. LowFnI d m ⇒ m Bool
 lowFn = monadfn @[k|k01|] 6
