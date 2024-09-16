@@ -23,22 +23,16 @@ import Control.Monad.Trans
 import Data.Kind
 import GHC.Types
 import InversionOfControl.Lift
-import InversionOfControl.MonadFn
 import InversionOfControl.TypeDict
+import InversionOfControl.ExplicitMonadFn
 
 data Even
-type instance Param Even = Int
-type instance Result Even = Bool
-
-instance MonadFn0 Even IO where
-  monadfn0 x = print ("even", x, even x) >> return (even x)
+instance MonadFn (E (K Zero Even) Int Bool IO) where
+  monadfn x = print ("even", x, even x) >> return (even x)
 
 data Odd
-type instance Param Odd = Int
-type instance Result Odd = Bool
-
-instance MonadFn0 Odd IO where
-  monadfn0 x = print ("odd", x, odd x) >> return (odd x)
+instance MonadFn (E (K Zero Odd) Int Bool IO) where
+  monadfn x = print ("odd", x, odd x) >> return (odd x)
 
 data EvenDict
 type instance
@@ -59,15 +53,15 @@ main = do
 data HighFnA (d ∷ Type)
 type instance
   Definition (HighFnA d) =
-    -- Kinds must be specified, otherwise weird things happen
-    -- (including core lint warnings).
-    Name "k03" ([k|k01|] ∷ K)
-      :+: Name "k02" ([gs|k03|] ∷ K)
+    Name "k03" [k|k01|]
+      :+: Name "k02" [gs|k03|]
       :+: End
 
+type EHigh d m = E [g|k02|] Int Bool m
 type HighFnI (d ∷ Type) (d1 ∷ Type) (m ∷ Type → Type) =
   ( d1 ~ HighFnA d
-  , MonadFn' [g1|k02|] Int Bool m
+  , MonadFn (EHigh d1 m)
+  , Monad m
   -- Commonly, we would add also the following constraints but in this case they can be inferred,
   -- so we omit them to show that inference works.
   -- , LowFnD (LiftUp d) (IdentityT m)
@@ -79,12 +73,12 @@ type HighFnD (d ∷ Type) (m ∷ Type → Type) = HighFnI d (HighFnA d) m
 highFn ∷ ∀ d d1 m. HighFnI d d1 m ⇒ m (Bool, Bool, Bool)
 highFn = do
   (,,)
-    <$> monadfn @[g1|k02|] 5
+    <$> monadfn @(EHigh d1 m) 5
     <*> runIdentityT (lowFn @(LiftUp d))
     <*> lowFn @d
 
-type LowFnI (d ∷ Type) (m ∷ Type → Type) = MonadFn' [k|k01|] Int Bool m
-type LowFnD d m = LowFnI d m
+type ELow d m = E [k|k01|] Int Bool m
+type LowFnD (d :: Type) (m :: Type -> Type) = MonadFn (ELow d m)
 
-lowFn ∷ ∀ d m. LowFnI d m ⇒ m Bool
-lowFn = monadfn @[k|k01|] 6
+lowFn ∷ ∀ d m. LowFnD d m ⇒ m Bool
+lowFn = monadfn @(ELow d m) 6

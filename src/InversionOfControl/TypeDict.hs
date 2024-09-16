@@ -7,6 +7,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE PatternSynonyms #-}
 
 module InversionOfControl.TypeDict where
 
@@ -17,35 +18,28 @@ import InversionOfControl.Lift
 import Language.Haskell.TH
   ( Exp (AppTypeE, VarE)
   , TyLit (StrTyLit)
-  , Type (AppT, ConT, LitT, VarT)
+  , pattern AppT
+  , pattern ConT
+  , pattern LitT
+  , pattern VarT
   , lookupTypeName
   , lookupValueName
   )
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
 
-type TypeKind = Data.Kind.Type
+data Name (key :: Symbol) (val :: Type)
 
-data Named k = Name Symbol k
-
-data TypeDict where
-  (:+:) ∷ Named k → TypeDict → TypeDict
-  End ∷ TypeDict
+data (:+:) ∷ Type → Type -> Type
+data End ∷ Type
 infixr 1 :+:
 
-type family ToConstraint (dict ∷ TypeDict) ∷ Constraint where
+type family ToConstraint (dict ∷ Type) ∷ Constraint where
+type family Definition (d ∷ Type) ∷ k
 
-type family Get (key ∷ Symbol) (dict ∷ TypeDict) ∷ k where
-
-type family GetF (key ∷ Symbol) (dict ∷ TypeKind) ∷ k where
-  GetF k d = Get k (Follow d)
-
-type family Self ∷ TypeKind where
-
-type family Definition (d ∷ TypeKind) ∷ k
-
-type family Follow ∷ TypeKind → k
-
-type family LiftsUntil (key ∷ Symbol) (dict ∷ TypeDict) ∷ Pean
+data Self
+data Follow (def :: Type)
+data LiftsUntil (key ∷ Symbol) (dict ∷ Type) ∷ Type
+data Get (key ∷ Symbol) (dict ∷ Type) ∷ Type
 
 data LiftUp d
 type instance Definition (LiftUp d) = Name "lift" () :+: Follow d
@@ -128,7 +122,7 @@ k =
             return $
               AppT
                 ( AppT
-                    (ConT 'K)
+                    (ConT ''K)
                     (AppT (AppT (ConT ''LiftsUntil) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
                 )
                 (AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
@@ -148,7 +142,7 @@ k1 =
             return $
               AppT
                 ( AppT
-                    (ConT 'K)
+                    (ConT ''K)
                     (AppT (AppT (ConT ''LiftsUntil) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
                 )
                 (AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
@@ -168,7 +162,7 @@ k2 =
             return $
               AppT
                 ( AppT
-                    (ConT 'K)
+                    (ConT ''K)
                     (AppT (AppT (ConT ''LiftsUntil) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
                 )
                 (AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
@@ -185,7 +179,7 @@ ks =
         return $
           AppT
             ( AppT
-                (ConT 'K)
+                (ConT ''K)
                 (AppT (AppT (ConT ''LiftsUntil) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (ConT ''Self)))
             )
             (AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (ConT ''Self)))

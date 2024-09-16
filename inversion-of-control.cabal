@@ -24,12 +24,12 @@ library
   exposed-modules:
     InversionOfControl.TypeDict
     InversionOfControl.Lift
-    InversionOfControl.LiftN
-    InversionOfControl.MonadFn
+    -- InversionOfControl.LiftN
+    -- InversionOfControl.MonadFn
     InversionOfControl.ExplicitMonadFn
     InversionOfControl.TcPlugin
-    InversionOfControl.Recur
-    InversionOfControl.MapRecur
+    -- InversionOfControl.Recur
+    -- InversionOfControl.MapRecur
 
   build-depends:
     base >=4.17 && <4.21,
