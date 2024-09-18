@@ -102,12 +102,14 @@ data ExtraDefs = ExtraDefs
   , endTC ∷ TyCon
   , followTC ∷ TyCon
   , toConstraintTC ∷ TyCon
+  , waitPluginTC ∷ TyCon
   , getTC ∷ TyCon
   , selfTC ∷ TyCon
   , defTC ∷ TyCon
   , cache ∷ IORef (M.HashMap [DictKeyElem] CachedDict')
   , ld_cache ∷ IORef (M.HashMap [DictKeyElem] LiftDict')
   , liftsUntilTC ∷ TyCon
+  , constraintValTC ∷ TyCon
   , succTC ∷ TyCon
   , zeroT ∷ Type
   }
@@ -137,11 +139,13 @@ lookupExtraDefs = do
   consTC ← tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc ":+:")
   endTC ← tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "End")
   toConstraintTC ← tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "ToConstraint")
+  waitPluginTC ← tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "WaitPlugin")
   getTC ← tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Get")
   selfTC ← tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Self")
   defTC ← tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Definition")
   followTC ← tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "Follow")
   liftsUntilTC ← tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "LiftsUntil")
+  constraintValTC ← tcLookupTyCon =<< lookupOrig typeDictModule (mkTcOcc "ConstraintVal")
   cache ← tcPluginIO $ newIORef M.empty
   ld_cache ← tcPluginIO $ newIORef M.empty
   succTC ← tcLookupTyCon =<< lookupOrig liftModule (mkTcOcc "Succ")
@@ -264,7 +268,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
 
   let followerUFM0 = listToUFM $ mapMaybe mkVarSubst givens
 
-  let followFollow ∷ Type -> Type → Maybe FamInstMatch
+  let followFollow ∷ Type → Type → Maybe FamInstMatch
       followFollow k t = do
         case lookupFamInstEnv famInstEnvs defTC [k, t] of
           [match] → Just match
@@ -348,7 +352,7 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
         --   writeIORef debugCounter (count + 1)
         --   putStrLn $ "subBegin " ++ show count ++ "\n" ++ showPprUnsafe (ppr t)
         --   return count
-        sub <- case splitTyConApp_maybe t of
+        sub ← case splitTyConApp_maybe t of
           Just (tycon, args)
             | tycon == toConstraintTC → do
                 let [dictT] = args
@@ -367,7 +371,11 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                 values ← dictValues dict
 
                 case values of
-                  Just constrs → do
+                  Just proxies → do
+                    let constrs = (`mapMaybe` proxies) \proxy → case splitTyConApp_maybe proxy of
+                          Just (tycon, [kind, val])
+                            | tycon == constraintValTC → Just val
+                          _ → Nothing
                     let constr = case constrs of
                           [c] → c
                           constrs' → mkTyConApp (cTupleTyCon $ length constrs') constrs'
@@ -393,6 +401,9 @@ solve Opts ExtraDefs{..} evBindsVar givens wanteds = do
                     let nPean = iterate (\x → TyConApp succTC [x]) zeroT !! n
                     return Substitution{sub_changeFree = False, sub_result = nPean}
                   Left sub → return sub
+            | tycon == waitPluginTC → do
+                let [x] = args
+                substitute traverseUFM followerUFM x
             | otherwise → mtraverseType traverseUFM (substitute traverseUFM followerUFM) t
           Nothing → mtraverseType traverseUFM (substitute traverseUFM followerUFM) t
         -- tcPluginIO $ putStrLn $ "subEnd " ++ show count ++ "\n" ++ showPprUnsafe (ppr t $$ ppr (sub_result sub))

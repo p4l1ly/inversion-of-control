@@ -26,7 +26,6 @@ class Ok (x ∷ Type)
 data A ∷ Type
 data B ∷ Type
 data C ∷ Type
-data D ∷ Type
 
 instance Ok A
 instance Ok B
@@ -34,18 +33,18 @@ instance Ok C
 
 type instance
   Definition (Dict1 d) =
-    Name "xx" (Ok (Get "x" (Follow (d (Dict1 d)))))
-      :+: (Get "cont" (Follow (d Dict3)) ∷ TypeDict)
+    Name "xx" (ConstraintVal (Ok (Get "x" (Follow (d (Dict1 d))))))
+      :+: Get "cont" (Follow (d Dict3))
 
 type instance
   Definition (Dict2 d) =
     Name "x" A
-      :+: Name "cont" (Name "y" (Ok B) :+: Follow d)
+      :+: Name "cont" (Name "y" (ConstraintVal (Ok B)) :+: Follow d)
       :+: End
 
 type instance
   Definition Dict3 =
-    Name "z" (Ok C)
+    Name "z" (ConstraintVal (Ok C))
       :+: End
 
 main ∷ IO ()
@@ -57,9 +56,9 @@ main = do
 fun ∷ ∀ d. ToConstraint (Follow (Dict1 d)) ⇒ IO ()
 fun = return ()
 
-data E
+data D
 type instance
-  Definition E =
+  Definition D =
     Name "lift" ()
       :+: Name "k" ()
       :+: Name "x" ()
@@ -82,19 +81,23 @@ funLift
         "k"
         ( Name "g" Bool
             :+: Name "lift" ()
-            :+: Follow E
+            :+: Follow D
         )
         ~ Succ (Succ Zero)
-    , LiftsUntil "y" (Follow E) ~ Succ Zero
-    , LiftsUntil "z" (Follow E) ~ Succ Zero
-    , LiftsUntil "x" (Follow E) ~ Succ Zero
+    , LiftsUntil "y" (Follow D) ~ Succ Zero
+    , LiftsUntil "z" (Follow D) ~ Succ Zero
+    , LiftsUntil "x" (Follow D) ~ Succ Zero
     )
   ⇒ IO ()
 funLift = return ()
 
+-- The type family `WaitPlugin` prevents the type checker to reduce `Get "x" y ~ Get "x" z` to
+-- `y ~ z` before the TC plugin is run. The plugin simply removes `WaitPlugin`.
+-- Sadly, `Get` should logically be a type family, not a `Type -> Type`, but it would be forbidden
+-- under forall (see test-free/DictImpl.hs).
 funDeep
   ∷ ∀ d
-   . ( Get "x" (Follow (LiftUp d)) ~ Get "x" (Follow d)
+   . ( WaitPlugin (Get "x" (Follow (LiftUp d))) ~ WaitPlugin (Get "x" (Follow d))
      , LiftsUntil "x" (Follow (LiftUp d)) ~ Succ (LiftsUntil "x" (Follow d))
      )
   ⇒ IO ()

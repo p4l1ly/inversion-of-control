@@ -1,13 +1,13 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE TemplateHaskellQuotes #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
-{-# LANGUAGE PatternSynonyms #-}
 
 module InversionOfControl.TypeDict where
 
@@ -18,28 +18,32 @@ import InversionOfControl.Lift
 import Language.Haskell.TH
   ( Exp (AppTypeE, VarE)
   , TyLit (StrTyLit)
+  , lookupTypeName
+  , lookupValueName
   , pattern AppT
   , pattern ConT
   , pattern LitT
   , pattern VarT
-  , lookupTypeName
-  , lookupValueName
   )
 import Language.Haskell.TH.Quote (QuasiQuoter (..))
 
-data Name (key :: Symbol) (val :: Type)
+data Name (key ∷ Symbol) (val ∷ Type)
 
-data (:+:) ∷ Type → Type -> Type
+data (:+:) ∷ Type → Type → Type
 data End ∷ Type
 infixr 1 :+:
 
 type family ToConstraint (dict ∷ Type) ∷ Constraint where
+
+type family WaitPlugin (a ∷ Type) ∷ Type where
+
 type family Definition (d ∷ Type) ∷ k
 
 data Self
-data Follow (def :: Type)
+data Follow (def ∷ Type)
 data LiftsUntil (key ∷ Symbol) (dict ∷ Type) ∷ Type
 data Get (key ∷ Symbol) (dict ∷ Type) ∷ Type
+data ConstraintVal (constr ∷ Constraint) ∷ Type
 
 data LiftUp d
 type instance Definition (LiftUp d) = Name "lift" () :+: Follow d

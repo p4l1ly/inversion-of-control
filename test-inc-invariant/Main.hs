@@ -1,4 +1,5 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -10,7 +11,6 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
-{-# LANGUAGE ConstraintKinds #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 -- {-# OPTIONS_GHC -dcore-lint #-}
@@ -22,9 +22,9 @@ import Control.Monad.Identity
 import Control.Monad.Trans
 import Data.Kind
 import GHC.Types
+import InversionOfControl.ExplicitMonadFn
 import InversionOfControl.Lift
 import InversionOfControl.TypeDict
-import InversionOfControl.ExplicitMonadFn
 
 data Even
 instance MonadFn (E (K Zero Even) Int Bool IO) where
@@ -78,7 +78,7 @@ highFn = do
     <*> lowFn @d
 
 type ELow d m = E [k|k01|] Int Bool m
-type LowFnD (d :: Type) (m :: Type -> Type) = MonadFn (ELow d m)
+type LowFnD (d ∷ Type) (m ∷ Type → Type) = MonadFn (ELow d m)
 
 lowFn ∷ ∀ d m. LowFnD d m ⇒ m Bool
 lowFn = monadfn @(ELow d m) 6
