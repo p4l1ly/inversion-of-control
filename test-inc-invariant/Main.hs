@@ -22,7 +22,7 @@ import Control.Monad.Identity
 import Control.Monad.Trans
 import Data.Kind
 import GHC.Types
-import InversionOfControl.ExplicitMonadFn
+import InversionOfControl.MonadFn
 import InversionOfControl.Lift
 import InversionOfControl.TypeDict
 

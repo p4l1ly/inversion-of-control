@@ -11,9 +11,9 @@ module InversionOfControl.LiftN where
 
 import Control.Monad.Trans (MonadTrans (lift))
 import Data.Kind
-import InversionOfControl.Lift (Pean (Succ, Zero))
+import InversionOfControl.Lift (Succ, Zero)
 
-class LiftN (n ∷ Pean) (m ∷ Type → Type) (m' ∷ Type → Type) where
+class LiftN (n ∷ Type) (m ∷ Type → Type) (m' ∷ Type → Type) where
   liftn ∷ m a → m' a
 
 instance (LiftN n m m', MonadTrans mt, Monad m') ⇒ LiftN (Succ n) m (mt m') where

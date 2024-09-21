@@ -24,12 +24,15 @@ library
   exposed-modules:
     InversionOfControl.TypeDict
     InversionOfControl.Lift
-    -- InversionOfControl.LiftN
-    -- InversionOfControl.MonadFn
-    InversionOfControl.ExplicitMonadFn
+    InversionOfControl.LiftN
+    InversionOfControl.MonadFn
     InversionOfControl.TcPlugin
-    -- InversionOfControl.Recur
-    -- InversionOfControl.MapRecur
+    InversionOfControl.Recursion.Cata
+    InversionOfControl.Recursion.Hylo
+    InversionOfControl.Recursion.Impl.Fix
+    -- InversionOfControl.Recursion.Impl.Free
+    -- InversionOfControl.Recursion.Impl.IORefDag
+    -- InversionOfControl.Recursion.Impl.SortedArrayDag
 
   build-depends:
     base >=4.17 && <4.21,
@@ -39,6 +42,8 @@ library
     ghc >=9.4 && <9.11,
     unordered-containers >=0.2.19 && < 0.2.21,
     hashable >=1.4 && < 1.6,
+    data-fix >=0.3.4 && < 0.4,
+    free >=5.2 && < 6,
   hs-source-dirs:   src
   default-language: Haskell2010
 

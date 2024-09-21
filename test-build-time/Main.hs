@@ -18,7 +18,7 @@
 module Main where
 
 import Data.Kind
-import InversionOfControl.ExplicitMonadFn
+import InversionOfControl.MonadFn
 import InversionOfControl.Lift
 import InversionOfControl.TypeDict
 

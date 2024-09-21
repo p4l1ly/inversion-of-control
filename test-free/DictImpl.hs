@@ -30,7 +30,7 @@ import Control.Monad.Reader
 import Data.IORef
 import Data.Kind
 import GHC.Generics hiding ((:+:))
-import InversionOfControl.ExplicitMonadFn
+import InversionOfControl.MonadFn
 import InversionOfControl.Lift
 import InversionOfControl.TypeDict
 import System.Random
