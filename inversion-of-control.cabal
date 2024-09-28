@@ -27,12 +27,11 @@ library
     InversionOfControl.LiftN
     InversionOfControl.MonadFn
     InversionOfControl.TcPlugin
-    InversionOfControl.Recursion.Cata
-    InversionOfControl.Recursion.Hylo
-    InversionOfControl.Recursion.Impl.Fix
-    -- InversionOfControl.Recursion.Impl.Free
-    -- InversionOfControl.Recursion.Impl.IORefDag
-    -- InversionOfControl.Recursion.Impl.SortedArrayDag
+    InversionOfControl.Recursion
+    InversionOfControl.Recursion.Fix
+    InversionOfControl.Recursion.Free
+    InversionOfControl.Recursion.IORefGraph
+    -- InversionOfControl.Recursion.ArrayDag
 
   build-depends:
     base >=4.17 && <4.21,
@@ -44,6 +43,7 @@ library
     hashable >=1.4 && < 1.6,
     data-fix >=0.3.4 && < 0.4,
     free >=5.2 && < 6,
+    array >=0.5 && < 0.6,
   hs-source-dirs:   src
   default-language: Haskell2010
 
@@ -95,3 +95,16 @@ test-suite test-free
     MonadImpl
     DictImpl
   cpp-options: -DCHURCH
+
+test-suite test-recursion
+  default-language:    Haskell2010
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test-recursion
+  main-is:             Main.hs
+  build-depends:
+    base >=4.17 && <4.21,
+    ghc-prim >=0.9.0,
+    data-fix >=0.3.4 && < 0.4,
+    free >= 5 && < 6,
+    mtl >=2.2.2 && <2.4,
+    inversion-of-control,
