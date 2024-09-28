@@ -39,11 +39,18 @@ type family WaitPlugin (a ∷ Type) ∷ Type where
 
 type family Definition (d ∷ Type) ∷ k
 
+type family GetFam (key ∷ Symbol) (dict ∷ Type) ∷ Type where
+
+type family Unkindy (f ∷ Type) ∷ k where
+  Unkindy (Kindy f) = f
+
 data Self
 data Follow (def ∷ Type)
-data LiftsUntil (key ∷ Symbol) (dict ∷ Type) ∷ Type
-data Get (key ∷ Symbol) (dict ∷ Type) ∷ Type
-data ConstraintVal (constr ∷ Constraint) ∷ Type
+data LiftsUntil (key ∷ Symbol) (dict ∷ Type)
+data Get (key ∷ Symbol) (dict ∷ Type)
+data ConstraintVal (constr ∷ Constraint)
+data Kindy (f :: k)
+
 
 data LiftUp d
 type instance Definition (LiftUp d) = Name "lift" () :+: Follow d
@@ -55,6 +62,32 @@ g =
         d ← lookupTypeName "d"
         case d of
           Just d → return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d))
+          Nothing → error "g: type d not in scope"
+    , quoteExp = error "g can quote only types"
+    , quoteDec = error "g can quote only types"
+    , quotePat = error "g can quote only types"
+    }
+
+f ∷ QuasiQuoter
+f =
+  QuasiQuoter
+    { quoteType = \tag → do
+        d ← lookupTypeName "d"
+        case d of
+          Just d → return $ AppT (AppT (ConT ''GetFam) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d))
+          Nothing → error "g: type d not in scope"
+    , quoteExp = error "g can quote only types"
+    , quoteDec = error "g can quote only types"
+    , quotePat = error "g can quote only types"
+    }
+
+fk ∷ QuasiQuoter
+fk =
+  QuasiQuoter
+    { quoteType = \tag → do
+        d ← lookupTypeName "d"
+        case d of
+          Just d → return $ AppT (ConT ''Unkindy) (AppT (AppT (ConT ''GetFam) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
           Nothing → error "g: type d not in scope"
     , quoteExp = error "g can quote only types"
     , quoteDec = error "g can quote only types"
@@ -111,6 +144,26 @@ gs =
   QuasiQuoter
     { quoteType = \tag → do
         return $ AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (ConT ''Self))
+    , quoteExp = error "gs can quote only types"
+    , quoteDec = error "gs can quote only types"
+    , quotePat = error "gs can quote only types"
+    }
+
+fs ∷ QuasiQuoter
+fs =
+  QuasiQuoter
+    { quoteType = \tag → do
+        return $ AppT (AppT (ConT ''GetFam) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (ConT ''Self))
+    , quoteExp = error "gs can quote only types"
+    , quoteDec = error "gs can quote only types"
+    , quotePat = error "gs can quote only types"
+    }
+
+fsk ∷ QuasiQuoter
+fsk =
+  QuasiQuoter
+    { quoteType = \tag → do
+        return $ AppT (ConT ''Unkindy) (AppT (AppT (ConT ''GetFam) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (ConT ''Self)))
     , quoteExp = error "gs can quote only types"
     , quoteDec = error "gs can quote only types"
     , quotePat = error "gs can quote only types"

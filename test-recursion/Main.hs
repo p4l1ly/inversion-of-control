@@ -3,9 +3,24 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module Main where
 
+import GHC.TypeLits (Symbol)
 import Control.Monad.Reader
 import Data.IORef
 import Data.Functor.Compose
@@ -16,6 +31,10 @@ import qualified InversionOfControl.Recursion.Free as RecFree
 import qualified InversionOfControl.Recursion.Fix as RecFix
 import InversionOfControl.Recursion
 import InversionOfControl.Lift
+import InversionOfControl.TypeDict
+import InversionOfControl.MonadFn
+import InversionOfControl.GMonadTrans
+import Data.Kind
 
 data BoolFormula int bool =
   And bool bool
@@ -78,86 +97,176 @@ runCIO act = do
   runReaderT act ref
   readIORef ref
 
-boolAlgebra :: (int -> CIO Int) -> (bool -> CIO Bool) -> BoolFormula int bool -> CIO Bool
-boolAlgebra _ getBool (And x y) = (&&) <$> getBool x <*> getBool y
-boolAlgebra _ getBool (Not x) = not <$> getBool x
-boolAlgebra getInt _ (Leq x y) = incCounter >> (<=) <$> getInt x <*> getInt y
-boolAlgebra _ _ (BoolLit b) = return b
-
-boolAlgebraVar
-  :: (Word -> Bool)
-  -> (int -> CIO Int)
-  -> (bool -> CIO Bool)
-  -> Compose (BoolFormula int) (Either Word) bool
-  -> CIO Bool
-boolAlgebraVar valuation getInt getBool (Compose fr) = boolAlgebra getInt getBool' fr
+boolAlgebra ::
+  forall d m.
+  ( MonadFnN (RecBool d m [f|refBool|])
+  , MonadFnN (RecInt d m [f|refInt|])
+  , MonadFn (RunCIO d m ())
+  )
+  => BoolFormula [f|refInt|] [f|refBool|]
+  -> m Bool
+boolAlgebra = \case
+  And x y -> (&&) <$> getBool x <*> getBool y
+  Not x -> not <$> getBool x
+  Leq x y -> do
+    monadfn @(RunCIO d _ _) incCounter
+    (<=) <$> getInt x <*> getInt y
+  BoolLit b -> return b
   where
-    getBool' = \case
-      Left x -> return $ valuation x
-      Right x -> getBool x
+    getBool = cataRec @(RecBool d _ _)
+    getInt = cataRec @(RecInt d _ _)
 
-type GenFixE f = E
-  (K (Succ Zero) RecFix.Rec)
-  ()
-  (Fix f)
-  (f (Fix f))
-  (CIO Bool)
-  CIO
-  CIO
+boolAlgebraVar ::
+  forall d m.
+  ( MonadFnN (RecBool d m [f|refBool|])
+  , MonadFnN (RecInt (VarD d) (ReaderT (Word -> Bool) m) [f|refInt|])
+  , MonadFn (RunCIO d m ())
+  )
+  => (Word -> Bool)
+  -> Compose (BoolFormula [f|refInt|]) (Either Word) [f|refBool|]
+  -> m Bool
+boolAlgebraVar valuation (Compose fr) = runReaderT (boolAlgebra @(VarD d) fr) valuation
+
+data VarD d
+type instance Definition (VarD d) =
+  Name "refBool" (Either Word [f|refBool|])
+  :+: Name "recBool" (Valuate [k|recBool|])
+  :+: Follow (LiftUp d)
+
+data Valuate key
+instance
+  ( Monad m
+  , MonadFnN (E key (p, r) b m)
+  )
+  => MonadFnN (E (K Zero (Valuate key)) (p, Either a r) b (ReaderT (a -> b) m))  -- TODO MonadFn
+  where
+  monadfnn (p, er) = case er of
+    Left x -> ($ x) <$> ask
+    Right r -> lift $ monadfnn @(E key (p, r) b m) (p, r)
+
+data D0
+type instance Definition D0 =
+  Name "runCIO" Lifter
+  :+: Name "recBool" (Pure Bool)
+  :+: Name "recInt" (Pure Int)
+  :+: Name "refBool" Bool
+  :+: Name "refInt" Int
+  :+: End
+
+data D1 d
+type instance Definition (D1 d) =
+  Name "refBool" [g|r|]
+  :+: Follow (LiftUp (RecurD "recBool" d D0))
+
+data D1' d
+type instance Definition (D1' d) =
+  Name "refBool" [g|r|]
+  :+: Follow (LiftUp (RecIO.FixRecurD "recBool" d D0))
+
+type RecBool d m r = E [k|recBool|] ((), r) Bool m
+type RecInt d m r = E [k|recInt|] ((), r) Int m
+type RunCIO d m a = E [k|runCIO|] (CIO a) a m
+
+data Lifter
+instance Monad m => MonadFn (E (K Zero Lifter) (m a) a m) where
+  monadfn act = act
+
+data Pure x
+instance Monad m => MonadFnN (E (K n (Pure x)) ((), x) x m) where
+  monadfnn (_, x) = pure x
+
+newtype RecM r b c = RecM {unRecM :: ReaderT (() -> r -> RecM r b b) CIO c}
+  deriving newtype (Functor, Applicative, Monad)
+
+instance GMonadTrans (RecM r b) (ReaderT (() -> r -> RecM r b b) CIO) where
+  glift = RecM
+
+data GenFixE (f :: Type -> Type)
+type instance Definition (GenFixE f) =
+  Name "p" ()
+  :+: Name "f" (Kindy f)
+  :+: Name "r" (Fix f)
+  :+: Name "a" (f [gs|r|])
+  :+: Name "m" (Kindy CIO)
+  :+: Name "c" (Kindy (ReaderT (() -> [gs|r|] -> RecM [gs|r|] Bool Bool) CIO))
+  :+: Name "bm" (Kindy (RecM (Fix f) Bool))
+  :+: Name "bx" Bool
+  :+: Name "b" ([fsk|bm|] [gs|bx|])
+  :+: End
 type FixE = GenFixE (BoolFormula Int)
 type VFixE = GenFixE (Compose (BoolFormula Int) (Either Word))
 
-type GenGraphE f = E
-  (K (Succ Zero) (RecIO.Rec Zero))
-  ()
-  (RecIO.RefFix f)
-  (f (RecIO.RefFix f))
-  (CIO Bool)
-  CIO
-  CIO
+data GenGraphE (f :: Type -> Type)
+type instance Definition (GenGraphE f) =
+  Name "p" ()
+  :+: Name "f" (Kindy f)
+  :+: Name "r" (RecIO.RefFix f)
+  :+: Name "a" (f [gs|r|])
+  :+: Name "m" (Kindy CIO)
+  :+: Name "c" (Kindy (ReaderT (() -> RecIO.Ref (f (RecIO.RefFix f)) -> RecM (RecIO.Ref (f (RecIO.RefFix f))) Bool Bool) CIO))
+  :+: Name "bm" (Kindy (RecM (RecIO.Ref (f (RecIO.RefFix f))) Bool))
+  :+: Name "bx" Bool
+  :+: Name "b" ([fsk|bm|] [gs|bx|])
+  :+: End
 type GraphE = GenGraphE (BoolFormula Int)
 type VGraphE = GenGraphE (Compose (BoolFormula Int) (Either Word))
 
-type FreeE = E
-  (K (Succ Zero) RecFree.Rec)
-  ()
-  (Free (BoolFormula Int) (CIO Bool))
-  (BoolFormula Int (Free (BoolFormula Int) (CIO Bool)))
-  (CIO Bool)
-  CIO
-  CIO
+data FreeE
+type instance Definition FreeE =
+  Name "p" ()
+  :+: Name "f" (Kindy (BoolFormula Int))
+  :+: Name "r" (Free [fsk|f|] Bool)
+  :+: Name "a" ([fsk|f|] [gs|r|])
+  :+: Name "m" (Kindy CIO)
+  :+: Name "c" (Kindy (ReaderT (() -> [gs|r|] -> RecM [gs|r|] Bool Bool) CIO))
+  :+: Name "bm" (Kindy (RecM [gs|r|] Bool))
+  :+: Name "bx" Bool
+  :+: Name "b" ([fsk|bm|] [gs|bx|])
+  :+: End
 
 main ∷ IO ()
 main = do
   1 <- runCIO do
-    False <- boolAlgebra pure pure $ And True False
-    True <- boolAlgebra pure pure $ Not False
-    True <- boolAlgebra pure pure $ Leq 1 2
-    False <- boolAlgebra pure pure $ BoolLit False
+    False <- boolAlgebra @D0 $ And True False 
+    True <- boolAlgebra @D0 $ Not False
+    True <- boolAlgebra @D0 $ Leq 1 2
+    False <- boolAlgebra @D0 $ BoolLit False
     return ()
 
   2 <- runCIO do
-    False <- cata @FixE (boolAlgebra pure) ($ fix1_val True)
+    False <- cata @(K Zero RecFix.Rec) @FixE
+      (boolAlgebra @(D1 FixE))
+      (unRecM $ cataRec @(RecBool (D1 FixE) _ _) $ fix1_val True)
     return ()
 
   2 <- runCIO do
-    True <- cata @FixE (boolAlgebra pure) ($ fix1_val False)
+    True <- cata @(K Zero RecFix.Rec) @FixE
+      (boolAlgebra @(D1 FixE))
+      (unRecM $ cataRec @(RecBool (D1 FixE) _ _) $ fix1_val False)
     return ()
 
   2 <- runCIO do
-    False <- cata @VFixE (boolAlgebraVar (\0 -> True) pure) ($ fix1_var)
+    False <- cata @(K Zero RecFix.Rec) @VFixE
+      (boolAlgebraVar @(D1 VFixE) (\0 -> True))
+      (unRecM $ cataRec @(RecBool (D1 VFixE) _ _) $ fix1_var)
     return ()
 
   2 <- runCIO do
-    True <- cata @VFixE (boolAlgebraVar (\0 -> False) pure) ($ fix1_var)
+    True <- cata @(K Zero RecFix.Rec) @VFixE
+      (boolAlgebraVar @(D1 VFixE) (\0 -> False))
+      (unRecM $ cataRec @(RecBool (D1 VFixE) _ _) $ fix1_var)
     return ()
 
   2 <- runCIO do
-    False <- cata @FreeE (boolAlgebra pure) ($ fmap (\0 -> pure True) free1)
+    False <- cata @(K Zero RecFree.Rec) @FreeE
+      (boolAlgebra @(D1 FreeE))
+      (unRecM $ cataRec @(RecBool (D1 FreeE) _ _) $ fmap (\0 -> True) free1)
     return ()
 
   2 <- runCIO do
-    True <- cata @FreeE (boolAlgebra pure) ($ fmap (\0 -> pure False) free1)
+    True <- cata @(K Zero RecFree.Rec) @FreeE
+      (boolAlgebra @(D1 FreeE))
+      (unRecM $ cataRec @(RecBool (D1 FreeE) _ _) $ fmap (\0 -> False) free1)
     return ()
 
   iorefg1_True <- iorefg1_val True
@@ -165,19 +274,27 @@ main = do
   iorefg1_var' <- iorefg1_var
 
   1 <- runCIO do
-    False <- cata @GraphE (boolAlgebra pure) ($ iorefg1_True)
+    False <- cata @(K (Succ Zero) (RecIO.RecFix (Succ Zero))) @GraphE
+      (boolAlgebra @(D1' GraphE))
+      (unRecM $ cataRec @(RecBool (D1' GraphE) _ _) $ iorefg1_True)
     return ()
 
   1 <- runCIO do
-    True <- cata @GraphE (boolAlgebra pure) ($ iorefg1_False)
+    True <- cata @(K (Succ Zero) (RecIO.RecFix (Succ Zero))) @GraphE
+      (boolAlgebra @(D1' GraphE))
+      (unRecM $ cataRec @(RecBool (D1' GraphE) _ _) $ iorefg1_False)
     return ()
 
   1 <- runCIO do
-    True <- cata @VGraphE (boolAlgebraVar (\0 -> False) pure) ($ iorefg1_var')
+    False <- cata @(K (Succ Zero) (RecIO.RecFix (Succ Zero))) @VGraphE
+      (boolAlgebraVar @(D1' VGraphE) (\0 -> True))
+      (unRecM $ cataRec @(RecBool (D1' VGraphE) _ _) $ iorefg1_var')
     return ()
 
   1 <- runCIO do
-    False <- cata @VGraphE (boolAlgebraVar (\0 -> True) pure) ($ iorefg1_var')
+    True <- cata @(K (Succ Zero) (RecIO.RecFix (Succ Zero))) @VGraphE
+      (boolAlgebraVar @(D1' VGraphE) (\0 -> False))
+      (unRecM $ cataRec @(RecBool (D1' VGraphE) _ _) $ iorefg1_var')
     return ()
 
   return ()

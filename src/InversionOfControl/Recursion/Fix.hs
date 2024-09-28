@@ -10,6 +10,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeOperators #-}
+{-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module InversionOfControl.Recursion.Fix where
 
@@ -17,10 +21,19 @@ import Data.Monoid
 import Data.Fix
 import InversionOfControl.Recursion
 import InversionOfControl.Lift
+import Control.Monad.Reader
+import InversionOfControl.TypeDict
 
 data Rec
-instance (Traversable f, Monad m) ⇒ Recur (E (K n Rec) p (Fix f) (f (Fix f)) b m m)
+instance
+  ( Traversable [fk|f|]
+  , Monad [fk|m|]
+  , [f|r|] ~ Fix [fk|f|]
+  , [f|a|] ~ [fk|f|] [f|r|]
+  , [f|c|] ~ Kindy (ReaderT ([f|p|] -> [f|r|] -> [f|b|]) [fk|m|])
+  ) ⇒
+  Recur (K n Rec) d
   where
   recur algebra act = do
-    let rec p r@(Fix a) = algebra rec p r a
-    act rec
+    let rec p r@(Fix fr) = algebra p r fr
+    runReaderT act rec

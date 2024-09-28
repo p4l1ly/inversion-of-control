@@ -8,34 +8,45 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
+{-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
 
 module InversionOfControl.Recursion where
 
+import GHC.TypeLits (Symbol)
 import Data.Kind
+import Control.Monad.Reader
+import InversionOfControl.TypeDict
+import InversionOfControl.MonadFn
+import InversionOfControl.Lift
+import InversionOfControl.LiftN
 
-data E (k :: Type) (p :: Type) (r :: Type) (a :: Type) (b :: Type) (m2 :: Type -> Type) (m :: Type -> Type)
+class Monad [fk|m|] ⇒ Recur k d where
+  recur ::
+    ([f|p|] -> [f|r|] -> [f|a|] -> [f|b|])
+    -> [fk|c|] x
+    -> [fk|m|] x
 
-type family P e :: Type where
-  P (E _ p _ _ _ _ _) = p
-type family R e :: Type where
-  R (E _ _ r _ _ _ _) = r
-type family A e :: Type where
-  A (E _ _ _ a _ _ _) = a
-type family B e :: Type where
-  B (E _ _ _ _ b _ _) = b
-type family M2 e :: Type -> Type where
-  M2 (E _ _ _ _ _ m2 _) = m2
-type family M e :: Type -> Type where
-  M (E _ _ _ _ _ _ m) = m
+data AskRun (m :: Type -> Type)
+data RecurD (name :: Symbol) d drest
+type instance Definition (RecurD name d drest) =
+  Name name (AskRun [fk|m|])
+  :+: Follow (LiftUp drest)
 
-class Monad (M e) ⇒ Recur e where
-  recur
-    :: ((P e -> R e -> B e) -> P e -> R e -> A e -> B e)
-    -> ((P e -> R e -> B e) -> M2 e a)
-    -> M e a
+instance
+  ( LiftN n (ReaderT (p -> r -> bm bx) m) bm
+  , Monad bm
+  , Monad m
+  ) => MonadFnN (E (K n (AskRun m)) (p, r) bx bm) where
+  monadfnn (p, r) = do
+    rec <- liftn @n ask
+    rec p r
 
-cata :: forall e a. (Recur e, P e ~ ()) =>
-  ((R e -> B e) -> A e -> B e)
-  -> ((R e -> B e) -> M2 e a)
-  -> M e a
-cata algebra act = recur @e (\rec _ _ -> algebra (rec ())) (\rec -> act (rec ()))
+cata :: forall k d x. (Recur k d, [f|p|] ~ ()) => ([f|a|] -> [f|b|]) -> [fk|c|] x -> [fk|m|] x
+cata algebra act = recur @k @d (\_ _ -> algebra) act
+
+cataRec :: forall e r. (MonadFnN e, A e ~ ((), r)) => r -> M e (B e)
+cataRec r = monadfnn @e ((), r)

@@ -14,11 +14,11 @@
 
 module InversionOfControl.MonadFn where
 
-import Control.Monad.Trans (MonadTrans (lift))
 import Data.Kind
 import GHC.TypeLits (Symbol)
 import InversionOfControl.Lift (K, Succ, Zero)
 import InversionOfControl.TypeDict
+import InversionOfControl.GMonadTrans
 
 class Monad (M e) ⇒ MonadFn (e ∷ Type) where
   monadfn ∷ A e → M e (B e)
@@ -32,7 +32,16 @@ type family M (e ∷ Type) ∷ Type → Type where
   M (E _ _ _ m) = m
 
 instance
-  (MonadFn (E (K n k) a b m), MonadTrans mt, Monad m, Monad (mt m))
-  ⇒ MonadFn (E (K (Succ n) k) a b (mt m))
+  (MonadFn (E (K n k) a b m), GMonadTrans mt m, Monad mt, Monad m)
+  ⇒ MonadFn (E (K (Succ n) k) a b mt)
   where
-  monadfn p1 = lift (monadfn @(E (K n k) a b m) p1)
+  monadfn p1 = glift (monadfn @(E (K n k) a b m) p1)
+
+class (Monad (M e)) ⇒ MonadFnN (e ∷ Type) where
+  monadfnn ∷ A e → M e (B e)
+
+-- TODO The following should be implemented for all keys that implement MonadFn
+-- and we should call only monadfnn, never monadfn.
+--
+-- instance (Monad (M e), MonadFn e) => MonadFnN e where
+--   monadfnn = monadfn @e

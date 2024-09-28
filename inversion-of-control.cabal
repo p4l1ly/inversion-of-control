@@ -23,6 +23,7 @@ extra-source-files: CHANGELOG.md
 library
   exposed-modules:
     InversionOfControl.TypeDict
+    InversionOfControl.GMonadTrans
     InversionOfControl.Lift
     InversionOfControl.LiftN
     InversionOfControl.MonadFn
