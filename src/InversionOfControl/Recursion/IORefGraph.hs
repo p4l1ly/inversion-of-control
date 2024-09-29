@@ -16,6 +16,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module InversionOfControl.Recursion.IORefGraph where
@@ -41,6 +42,9 @@ import Data.Kind
 
 data Ref x = Ref (StableName (IORef (Word, x))) (IORef (Word, x))
 
+instance Show (Ref x) where
+  show (Ref name _) = '@' : show (hashStableName name)
+
 instance Eq (Ref x) where
   Ref sn1 _ == Ref sn2 _ = sn1 == sn2
 
@@ -54,6 +58,7 @@ buildTopo topo x = do
   return $ Ref name ioref
 
 newtype RefFix f = RefFix (Ref (f (RefFix f)))
+  deriving newtype Show
 
 -- Copy-pasted from Relude
 foldMapM :: forall b m f a . (Monoid b, Monad m, Foldable f) => (a -> m b) -> f a -> m b
