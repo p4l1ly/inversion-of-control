@@ -101,7 +101,7 @@ boolAlgebra ::
   forall d m.
   ( MonadFnN (RecBool d m [f|refBool|])
   , MonadFnN (RecInt d m [f|refInt|])
-  , MonadFn (RunCIO d m ())
+  , MonadFnN (RunCIO d m ())
   )
   => BoolFormula [f|refInt|] [f|refBool|]
   -> m Bool
@@ -109,7 +109,7 @@ boolAlgebra = \case
   And x y -> (&&) <$> getBool x <*> getBool y
   Not x -> not <$> getBool x
   Leq x y -> do
-    monadfn @(RunCIO d _ _) incCounter
+    monadfnn @(RunCIO d _ _) incCounter
     (<=) <$> getInt x <*> getInt y
   BoolLit b -> return b
   where
@@ -120,7 +120,7 @@ boolAlgebraVar ::
   forall d m.
   ( MonadFnN (RecBool d m [f|refBool|])
   , MonadFnN (RecInt (VarD d) (ReaderT (Word -> Bool) m) [f|refInt|])
-  , MonadFn (RunCIO d m ())
+  , MonadFnN (RunCIO (VarD d) (ReaderT (Word -> Bool) m) ())
   )
   => (Word -> Bool)
   -> Compose (BoolFormula [f|refInt|]) (Either Word) [f|refBool|]
@@ -138,11 +138,17 @@ instance
   ( Monad m
   , MonadFnN (E key (p, r) b m)
   )
-  => MonadFnN (E (K Zero (Valuate key)) (p, Either a r) b (ReaderT (a -> b) m))  -- TODO MonadFn
+  => MonadFn (E (K Zero (Valuate key)) (p, Either a r) b (ReaderT (a -> b) m))
   where
-  monadfnn (p, er) = case er of
+  monadfn (p, er) = case er of
     Left x -> ($ x) <$> ask
     Right r -> lift $ monadfnn @(E key (p, r) b m) (p, r)
+
+instance
+  (Monad m, MonadFn (E (K n (Valuate key)) a b m)) =>
+  MonadFnN (E (K n (Valuate key)) a b m) where
+  monadfnn = monadfn @(E (K n (Valuate key)) a b m)
+
 
 data D0
 type instance Definition D0 =
@@ -170,6 +176,11 @@ type RunCIO d m a = E [k|runCIO|] (CIO a) a m
 data Lifter
 instance Monad m => MonadFn (E (K Zero Lifter) (m a) a m) where
   monadfn act = act
+
+instance
+  (Monad m, MonadFn (E (K n Lifter) a b m)) =>
+  MonadFnN (E (K n Lifter) a b m) where
+  monadfnn = monadfn @(E (K n Lifter) a b m)
 
 data Pure x
 instance Monad m => MonadFnN (E (K n (Pure x)) ((), x) x m) where
@@ -223,6 +234,9 @@ type instance Definition FreeE =
   :+: Name "bx" Bool
   :+: Name "b" ([fsk|bm|] [gs|bx|])
   :+: End
+
+newtype BoolIntFormula = BoolIntFormula (BoolFormula IntBoolFormula BoolIntFormula)
+newtype IntBoolFormula = IntBoolFormula (IntFormula BoolIntFormula IntBoolFormula)
 
 main ∷ IO ()
 main = do
