@@ -22,6 +22,8 @@
 
 module Main where
 
+import Data.Traversable
+import Data.Semigroup
 import GHC.TypeLits (Symbol)
 import Control.Monad.Reader
 import Data.IORef
@@ -127,6 +129,25 @@ runCIO act = do
   ref <- newIORef 0
   runReaderT act ref
   readIORef ref
+
+boolShareCount
+  :: forall d m bool self.
+  ( Int ~ [f|bx|]
+  , Sum Int ~ [f|p|]
+  , [f|r|] ~ RecIO.RefFix [fk|f|]
+  , Monad [fk|m|]
+  ) => Sum Int
+  -> self
+  -> BoolFormula bool [f|r|]
+  -> RecIO.SemigroupA (RecIO.RecFixD d) Int
+boolShareCount (Sum p) _ fr = RecIO.SemigroupA $ Compose do
+  let RecIO.SemigroupA (Compose bef) =
+        for fr \(RecIO.RefFix child) -> RecIO.SemigroupA $ Compose do
+          recur <- ask
+          let RecIO.SemigroupA (Compose bef) = recur (Sum 1) child
+          bef
+  aft <- bef
+  return do (fromEnum (p > 1) +) . sum <$> aft
 
 intAlgebra ::
   forall d m.
@@ -313,6 +334,18 @@ type instance Definition (GenGraphE f) =
   :+: End
 type GraphE = GenGraphE (BoolFormula Int)
 type VGraphE = GenGraphE (Compose (BoolFormula Int) (Either Word))
+
+data SemigroupE
+type instance Definition SemigroupE =
+  Name "p" (Sum Int)
+  :+: Name "f" (Kindy (BoolFormula Int))
+  :+: Name "r" (RecIO.RefFix (BoolFormula Int))
+  :+: Name "a" (BoolFormula Int [gs|r|])
+  :+: Name "m" (Kindy IO)
+  :+: Name "bx" Int
+  :+: Name "b" (RecIO.SemigroupA (RecIO.RecFixD SemigroupE) [gs|bx|])
+  :+: Name "c" (Kindy (RecIO.SemigroupA (RecIO.RecFixD SemigroupE)))
+  :+: End
 
 data FreeE
 type instance Definition FreeE =
@@ -634,7 +667,19 @@ main = do
             (unRecM2 $ cataRec @(RecBool (D2 IntBool'E BoolInt'E) _ _) iorefg2_01)
     return ()
 
-  -- Test two-way recursion of IORefGraph
+  -- Test two-way recursion (the mutual one is unsupported)
+  2 <- recur @(K Zero RecIO.SemigroupRecFix) @SemigroupE
+    (boolShareCount @SemigroupE)
+    $ RecIO.SemigroupA $ Compose do
+      recur <- ask
+      let RecIO.RefFix r = iorefg1_True
+      let RecIO.SemigroupA (Compose bef) = recur (Sum 1) r
+      bef
+
+  -- Test recursion of composition of IORefGraph and Free
+  -- TODO
+
+  -- Cleanup
   -- TODO
 
   return ()
