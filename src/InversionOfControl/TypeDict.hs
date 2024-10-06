@@ -55,6 +55,9 @@ data Kindy (f :: k)
 data LiftUp d
 type instance Definition (LiftUp d) = Name "lift" () :+: Follow d
 
+data Empty
+type instance Definition Empty = End
+
 g ∷ QuasiQuoter
 g =
   QuasiQuoter
