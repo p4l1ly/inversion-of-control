@@ -14,26 +14,21 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
+{-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
 
 module InversionOfControl.Recursion.Fix where
 
-import Data.Monoid
 import Data.Fix
-import InversionOfControl.Recursion
-import InversionOfControl.Lift
-import Control.Monad.Reader
 import InversionOfControl.TypeDict
+import InversionOfControl.Recursion
+import InversionOfControl.KFn
+import InversionOfControl.Lift
 
 data Rec
 instance
-  ( Traversable [fk|f|]
-  , Monad [fk|m|]
-  , [f|r|] ~ Fix [fk|f|]
+  ( [f|r|] ~ Fix [fk|f|]
   , [f|a|] ~ [fk|f|] [f|r|]
-  , [f|c|] ~ Kindy (ReaderT ([f|p|] -> [f|r|] -> [f|b|]) [fk|m|])
   ) ⇒
-  Recur (K n Rec) d
+  KFn (K n Rec) (Recur d)
   where
-  recur algebra act = do
-    let rec p r@(Fix fr) = algebra p r fr
-    runReaderT act rec
+  kfn (algebra, p, r@(Fix a)) = algebra p r a

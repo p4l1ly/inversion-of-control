@@ -26,13 +26,13 @@ library
     InversionOfControl.GMonadTrans
     InversionOfControl.Lift
     InversionOfControl.LiftN
-    InversionOfControl.MonadFn
+    InversionOfControl.KFn
     InversionOfControl.TcPlugin
     InversionOfControl.Recursion
     InversionOfControl.Recursion.Fix
     InversionOfControl.Recursion.Free
-    InversionOfControl.Recursion.IORefGraph
-    InversionOfControl.Recursion.IORefGraphFree
+    -- InversionOfControl.Recursion.IORefGraph
+    -- InversionOfControl.Recursion.IORefGraphFree
     -- InversionOfControl.Recursion.ArrayDag
 
   build-depends:
