@@ -20,15 +20,13 @@ module InversionOfControl.Recursion.Fix where
 
 import Data.Fix
 import InversionOfControl.TypeDict
-import InversionOfControl.Recursion
 import InversionOfControl.KFn
 import InversionOfControl.Lift
+import InversionOfControl.Recursion
 
 data Rec
 instance
-  ( [f|r|] ~ Fix [fk|f|]
-  , [f|a|] ~ [fk|f|] [f|r|]
-  ) ⇒
-  KFn (K n Rec) (Recur d)
+  KFn (RecurE n Rec p (Fix f) (f (Fix f)) b)
   where
-  kfn (algebra, p, r@(Fix a)) = algebra p r a
+  kfn algebra p r@(Fix a) = algebra p r a
+

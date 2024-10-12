@@ -13,20 +13,18 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
-{-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
-module InversionOfControl.Recursion.Free where
+module InversionOfControl.Recursion.Pure where
 
-import Control.Monad.Free
-import InversionOfControl.Recursion
-import InversionOfControl.Lift
+import Data.Fix
 import InversionOfControl.TypeDict
 import InversionOfControl.KFn
+import InversionOfControl.Lift
+import InversionOfControl.Recursion
 
 data Rec
 instance
-  (Applicative bm) ⇒
-  KFn (RecurE n Rec p (Free f bx) (f (Free f bx)) (bm bx))
+  Applicative m =>
+  KFn (RecurE n Rec p r a (m r))
   where
-  kfn algebra p r@(Free a) = algebra p r a
-  kfn algebra p r@(Pure bx) = pure bx
+  kfn _ _ r = pure r

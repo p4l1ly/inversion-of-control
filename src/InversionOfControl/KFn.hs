@@ -12,33 +12,40 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module InversionOfControl.KFn where
 
 import Data.Kind
 import GHC.TypeLits (Symbol)
 import InversionOfControl.Lift (K, Succ, Zero)
-import InversionOfControl.TypeDict
 import InversionOfControl.GMonadTrans
 
-class KFn (k ∷ Type) (d :: Type) where
-  kfn :: [f|kfn|]
+data E (k :: Type) (kfn :: Type)
+type family EKfn (e :: Type) where
+  EKfn (E _ kfn) = kfn
 
-class KFnAuto (k :: Type) (d :: Type) where
-  kfnAuto ∷ [f|kfn|]
+class KFn e where
+  kfn :: EKfn e
+
+class KFnAuto e where
+  kfnAuto ∷ EKfn e
+
+type KE n k kfn = E (K n k) kfn
+type KE0 k kfn = KE Zero k kfn
 
 instance
-  ( KFnAuto (K n k) (UnliftD d)
-  , [f|kfn|] ~ ([f|x|] -> [fk|m|] [f|y|])
-  , GMonadTrans [fk|m|]
-  , Monad [fk|m|]
-  , Monad (Unlift [fk|m|])
+  ( KFnAuto (KE n k (x -> Unlift m y))
+  , GMonadTrans m
+  , Monad m
+  , Monad (Unlift m)
   )
-  ⇒ KFnAuto (K (Succ n) k) d
+  ⇒ KFnAuto (KE (Succ n) k (x -> m y))
   where
-  kfnAuto x = glift (kfnAuto @(K n k) @(UnliftD d) x)
+  kfnAuto x = glift (kfnAuto @(E (K n k) _) x)
 
-data UnliftD d
-type instance Definition (UnliftD d) =
-  Name "kfn" ([f|x|] -> Unlift [fk|m|] [f|y|]) :+: Follow d
+data Lifter
+instance KFnAuto (KE0 Lifter (x -> x)) where
+  kfnAuto x = x
+
+instance KFnAuto (KE n Lifter kfn) => KFn (KE n Lifter kfn) where
+  kfn = kfnAuto @(E (K n Lifter) kfn)
