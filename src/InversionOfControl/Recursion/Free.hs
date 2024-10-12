@@ -25,12 +25,8 @@ import InversionOfControl.KFn
 
 data Rec
 instance
-  ( Applicative [fk|bm|]
-  , [f|b|] ~ [fk|bm|] [f|bx|]
-  , [f|r|] ~ Free [fk|f|] [f|bx|]
-  , [f|a|] ~ [fk|f|] [f|r|]
-  ) ⇒
-  KFn (K n Rec) (Recur d)
+  (Applicative bm) ⇒
+  KFn (RecurE n Rec p (Free f bx) (f (Free f bx)) (bm bx))
   where
-  kfn (algebra, p, r@(Free a)) = algebra p r a
-  kfn (algebra, p, r@(Pure bx)) = pure bx
+  kfn algebra p r@(Free a) = algebra p r a
+  kfn algebra p r@(Pure bx) = pure bx

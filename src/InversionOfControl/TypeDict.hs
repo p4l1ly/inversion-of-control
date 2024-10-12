@@ -192,6 +192,29 @@ k =
     , quotePat = error "k can quote only types"
     }
 
+e ∷ QuasiQuoter
+e =
+  QuasiQuoter
+    { quoteType = \eetag → do
+        let (eename, _:tag) = break (== '|') eetag
+        ee <- lookupTypeName eename
+        d ← lookupTypeName "d"
+        case (d, ee) of
+          (Just d, Just ee) →
+            return $
+              AppT
+                ( AppT
+                    (ConT ee)
+                    (AppT (AppT (ConT ''LiftsUntil) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
+                )
+                (AppT (AppT (ConT ''Get) (LitT (StrTyLit tag))) (AppT (ConT ''Follow) (VarT d)))
+          (Nothing, _) → error "e: type d not in scope"
+          _ -> error $ "e: type " ++ eename ++ " not in scope"
+    , quoteExp = error "k can quote only types"
+    , quoteDec = error "k can quote only types"
+    , quotePat = error "k can quote only types"
+    }
+
 k1 ∷ QuasiQuoter
 k1 =
   QuasiQuoter

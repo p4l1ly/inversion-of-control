@@ -23,12 +23,13 @@ extra-source-files: CHANGELOG.md
 library
   exposed-modules:
     InversionOfControl.TypeDict
+    InversionOfControl.TcPlugin
     InversionOfControl.GMonadTrans
     InversionOfControl.Lift
     InversionOfControl.LiftN
     InversionOfControl.KFn
-    InversionOfControl.TcPlugin
     InversionOfControl.Recursion
+    InversionOfControl.Recursion.Pure
     InversionOfControl.Recursion.Fix
     InversionOfControl.Recursion.Free
     -- InversionOfControl.Recursion.IORefGraph

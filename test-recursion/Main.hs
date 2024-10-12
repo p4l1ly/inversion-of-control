@@ -1,4 +1,5 @@
 {-# LANGUAGE UnicodeSyntax #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TypeApplications #-}
@@ -18,6 +19,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ImpredicativeTypes #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module Main where
@@ -33,6 +35,7 @@ import Control.Monad.Free
 -- import qualified InversionOfControl.Recursion.IORefGraph as RecIO
 import qualified InversionOfControl.Recursion.Free as RecFree
 import qualified InversionOfControl.Recursion.Fix as RecFix
+import qualified InversionOfControl.Recursion.Pure as RecPure
 import InversionOfControl.Recursion
 import InversionOfControl.Lift
 import InversionOfControl.TypeDict
@@ -148,102 +151,83 @@ runCIO act = do
 --           bef
 --   aft <- bef
 --   return do (fromEnum (p > 1) +) . sum <$> aft
--- 
--- intAlgebra ::
---   forall d m.
---   ( MonadFnN (RecBool d m [f|refBool|])
---   , MonadFnN (RecInt d m [f|refInt|])
---   , MonadFnN (RunCIO d m ())
---   , Show [f|refBool|]
---   , Show [f|refInt|]
---   )
---   => IntFormula [f|refBool|] [f|refInt|]
---   -> m Int
--- intAlgebra = \case
---   Count xs -> do
---     monadfnn @(RunCIO d _ _) incCounter
---     args <- mapM getBool xs
---     let result = sum $ map fromEnum args
---     monadfnn @(RunCIO d _ _) $ lift do
---       print ("[]", result, args, xs)
---     return result
---   Plus x y -> do
---     args <- (,) <$> getInt x <*> getInt y
---     let result = uncurry (+) args
---     monadfnn @(RunCIO d _ _) $ lift do
---       print ("++", result, args, x, y)
---     return result
---   IntLit i -> do
---     monadfnn @(RunCIO d _ _) $ lift do
---       print ("II", i)
---     return i
---   where
---     getBool = cataRec @(RecBool d _ _)
---     getInt = cataRec @(RecInt d _ _)
--- 
--- boolAlgebra ::
---   forall d m.
---   ( MonadFnN (RecBool d m [f|refBool|])
---   , MonadFnN (RecInt d m [f|refInt|])
---   , MonadFnN (RunCIO d m ())
---   , Show [f|refBool|]
---   , Show [f|refInt|]
---   )
---   => BoolFormula [f|refInt|] [f|refBool|]
---   -> m Bool
--- boolAlgebra = \case
---   And x y -> do
---     args <- (,) <$> getBool x <*> getBool y
---     let result = uncurry (&&) args
---     monadfnn @(RunCIO d _ _) $ lift do
---       print ("&&", result, args, x, y)
---     return result
---   Not x -> do
---     args <- getBool x
---     let result = not args
---     monadfnn @(RunCIO d _ _) $ lift do
---       print ("!!", result, args, x)
---     return result
---   Leq x y -> do
---     monadfnn @(RunCIO d _ _) incCounter
---     args <- (,) <$> getInt x <*> getInt y
---     let result = uncurry (<=) args
---     monadfnn @(RunCIO d _ _) $ lift do
---       print ("<=", result, args, x, y)
---     return result
---   BoolLit b -> do
---     monadfnn @(RunCIO d _ _) $ lift do
---       print ("BB", b)
---     return b
---   where
---     getBool = cataRec @(RecBool d _ _)
---     getInt = cataRec @(RecInt d _ _)
--- 
+
+type RecBool d m = [e|CataE|recBool|] [f|bool|] (BoolFormula [f|int|] [f|bool|]) (m Bool)
+type RecInt d m = [e|CataE|recInt|] [f|int|] (IntFormula [f|bool|] [f|int|]) (m Int)
+type RunCIO d m a = E [k|runCIO|] (CIO a -> m a)
+
+type RecApp d m =
+  ( Monad m
+  , KFn (RecBool d m)
+  , KFn (RecInt d m)
+  , forall a. KFn (RunCIO d m a)
+  , Show [f|bool|]
+  , Show [f|int|]
+  ) :: Constraint
+
+recBool :: forall d m. RecApp d m => [f|bool|] -> m Bool
+recBool = kfn @(RecBool d m) (boolAlgebra @d)
+
+recInt :: forall d m. RecApp d m => [f|int|] -> m Int
+recInt = kfn @(RecInt d m) (intAlgebra @d)
+
+intAlgebra :: forall d m. RecApp d m => IntFormula [f|bool|] [f|int|] -> m Int
+intAlgebra (Count xs) = do
+  kfn @(RunCIO d _ _) incCounter
+  args <- mapM (recBool @d) xs
+  let result = sum $ map fromEnum args
+  kfn @(RunCIO d _ _) $ lift do print ("[]", result, args, xs)
+  return result
+intAlgebra (Plus x y) = do
+  args <- (,) <$> (recInt @d) x <*> (recInt @d) y
+  let result = uncurry (+) args
+  kfn @(RunCIO d _ _) $ lift do print ("++", result, args, x, y)
+  return result
+intAlgebra (IntLit i) = do
+  kfn @(RunCIO d _ _) $ lift do print ("II", i)
+  return i
+
+boolAlgebra :: forall d m. RecApp d m => BoolFormula [f|int|] [f|bool|] -> m Bool
+boolAlgebra (And x y) = do
+  args <- (,) <$> (recBool @d) x <*> (recBool @d) y
+  let result = uncurry (&&) args
+  kfn @(RunCIO d _ _) $ lift do print ("&&", result, args, x, y)
+  return result
+boolAlgebra (Not x) = do
+  args <- (recBool @d) x
+  let result = not args
+  kfn @(RunCIO d _ _) $ lift do print ("!!", result, args, x)
+  return result
+boolAlgebra (Leq x y) = do
+  kfn @(RunCIO d _ _) incCounter
+  args <- (,) <$> (recInt @d) x <*> (recInt @d) y
+  let result = uncurry (<=) args
+  kfn @(RunCIO d _ _) $ lift do print ("<=", result, args, x, y)
+  return result
+boolAlgebra (BoolLit b) = do
+  kfn @(RunCIO d _ _) $ lift do print ("BB", b)
+  return b
+
 -- boolAlgebraVar ::
 --   forall d m.
---   ( MonadFnN (RecBool d m [f|refBool|])
---   , MonadFnN (RecInt (VarD d) (ReaderT (Word -> Bool) m) [f|refInt|])
---   , MonadFnN (RunCIO (VarD d) (ReaderT (Word -> Bool) m) ())
---   , Show [f|refBool|]
---   , Show [f|refInt|]
---   )
+--   RecApp (VarD d) (ReaderT (Word -> Bool) m)
 --   => (Word -> Bool)
---   -> Compose (BoolFormula [f|refInt|]) (Either Word) [f|refBool|]
+--   -> Compose (BoolFormula [f|int|]) (Either Word) [f|bool|]
 --   -> m Bool
--- boolAlgebraVar valuation (Compose fr) = runReaderT (boolAlgebra @(VarD d) fr) valuation
+-- boolAlgebraVar valuation (Compose fr) = runReaderT undefined valuation
 -- 
 -- data VarD d
 -- type instance Definition (VarD d) =
---   Name "refBool" (Either Word [f|refBool|])
+--   Name "bool" (Either Word [f|bool|])
 --   :+: Name "recBool" (Valuate [k|recBool|])
 --   :+: Follow (LiftUp d)
 -- 
 -- data Valuate key
 -- instance
 --   ( Monad m
---   , MonadFnN (E key (p, r) b m)
+--   , KFn (E key (Recur p r a (m b)))
 --   )
---   => MonadFn (E (K Zero (Valuate key)) (p, Either a r) b (ReaderT (a -> b) m))
+--   => MonadFn (E (K Zero (Valuate key)) ((p -> r -> a -> m b) -> p -> Either a r -> ReaderT (a -> b) m b)
 --   where
 --   monadfn (p, er) = case er of
 --     Left x -> ($ x) <$> ask
@@ -258,11 +242,23 @@ runCIO act = do
 data D0
 type instance Definition D0 =
   Name "runCIO" Lifter
-  :+: Name "recBool" (Purifier Bool)
-  :+: Name "recInt" (Purifier Int)
-  :+: Name "refBool" Bool
-  :+: Name "refInt" Int
+  :+: Name "recBool" RecPure.Rec
+  :+: Name "recInt" RecPure.Rec
+  :+: Name "bool" Bool
+  :+: Name "int" Int
   :+: End
+
+data FixD
+type instance Definition FixD =
+  Name "recBool" RecFix.Rec
+  :+: Name "bool" (Fix (BoolFormula Int))
+  :+: Follow D0
+
+data VarFixD
+type instance Definition VarFixD =
+  Name "recBool" RecFix.Rec
+  :+: Name "bool" (Fix (Compose (BoolFormula Int) (Either Word)))
+  :+: Follow D0
 
 -- data D1_ d
 -- type instance Definition (D1_ d) =
@@ -280,37 +276,12 @@ type instance Definition D0 =
 -- data D2 d d1
 -- type instance Definition (D2 d d1) = Follow (LiftUp (D2_ d (D1_ d1)))
 
-type RecBool d m r = E [k|recBool|] ((), r) Bool m
-type RecInt d m r = E [k|recInt|] ((), r) Int m
-type RunCIO d m a = E [k|runCIO|] (CIO a) a m
-
-data Lifter
-instance KFnAuto (K Zero Lifter) (LifterD m y) where
-  kfnAuto act = act
-
-data LifterD m y
-type instance Definition (LifterD m y) =
-  Name "m" (Kinded m)
-  :+: Name "y" y
-  :+: Name "x" (m y)
-  :+: Name "kfn" (m y -> m y)
-  :+: End
-
-instance
-  (Monad m, MonadFn (E (K n Lifter) a b m)) =>
-  MonadFnN (E (K n Lifter) a b m) where
-  monadfnn = monadfn @(E (K n Lifter) a b m)
-
-data Purifier x
-instance Monad m => MonadFnN (E (K n (Purifier x)) ((), x) x m) where
-  monadfnn (_, x) = pure x
-
 -- newtype RecM r b c = RecM {unRecM :: ReaderT (() -> r -> RecM r b b) CIO c}
 --   deriving newtype (Functor, Applicative, Monad)
 -- 
 -- instance GMonadTrans (RecM r b) (ReaderT (() -> r -> RecM r b b) CIO) where
 --   glift = RecM
--- 
+
 -- data GenFixE (f :: Type -> Type)
 -- type instance Definition (GenFixE f) =
 --   Name "p" ()
@@ -326,7 +297,7 @@ instance Monad m => MonadFnN (E (K n (Purifier x)) ((), x) x m) where
 --   :+: End
 -- type FixE = GenFixE (BoolFormula Int)
 -- type VFixE = GenFixE (Compose (BoolFormula Int) (Either Word))
--- 
+
 -- data GenGraphE (f :: Type -> Type)
 -- type instance Definition (GenGraphE f) =
 --   Name "p" ()
@@ -551,19 +522,15 @@ main = do
     9 <- intAlgebra @D0 $ IntLit 9
     return ()
 
-  -- -- Test recursion of Fix
+  -- Test recursion of Fix
 
-  -- 2 <- runCIO do
-  --   False <- cata @(K Zero RecFix.Rec) @FixE
-  --     (boolAlgebra @(D1 FixE))
-  --     (unRecM $ cataRec @(RecBool (D1 FixE) _ _) $ fix1_val True)
-  --   return ()
+  2 <- runCIO do
+    False <- recBool @FixD $ fix1_val True
+    return ()
 
-  -- 2 <- runCIO do
-  --   True <- cata @(K Zero RecFix.Rec) @FixE
-  --     (boolAlgebra @(D1 FixE))
-  --     (unRecM $ cataRec @(RecBool (D1 FixE) _ _) $ fix1_val False)
-  --   return ()
+  2 <- runCIO do
+    True <- recBool @FixD $ fix1_val False
+    return ()
 
   -- 2 <- runCIO do
   --   False <- cata @(K Zero RecFix.Rec) @VFixE
@@ -690,4 +657,4 @@ main = do
   -- -- Cleanup
   -- -- TODO
 
-  -- return ()
+  return ()
