@@ -290,6 +290,12 @@ type instance Definition VarFixD =
   Name "bool" (Fix (Compose (BoolFormula Int) (Either Word)))
   :+: Follow FixD
 
+data FreeD
+type instance Definition FreeD =
+  Name "recBool" RecFree.Rec
+  :+: Name "bool" (Free (BoolFormula Int) Bool)
+  :+: Follow D0
+
 -- data D1_ d
 -- type instance Definition (D1_ d) =
 --   Name "refBool" [g|r|]
@@ -570,19 +576,15 @@ main = do
     True <- runReaderT (unVarT $ recBoolVar @VarFixD (Right fix1_var)) (\0 -> False)
     return ()
 
-  -- -- Test recursion of Free
+  -- Test recursion of Free
 
-  -- 2 <- runCIO do
-  --   False <- cata @(K Zero RecFree.Rec) @FreeE
-  --     (boolAlgebra @(D1 FreeE))
-  --     (unRecM $ cataRec @(RecBool (D1 FreeE) _ _) $ fmap (\0 -> True) free1)
-  --   return ()
+  2 <- runCIO do
+    False <- recBool @FreeD $ fmap (\0 -> True) free1
+    return ()
 
-  -- 2 <- runCIO do
-  --   True <- cata @(K Zero RecFree.Rec) @FreeE
-  --     (boolAlgebra @(D1 FreeE))
-  --     (unRecM $ cataRec @(RecBool (D1 FreeE) _ _) $ fmap (\0 -> False) free1)
-  --   return ()
+  2 <- runCIO do
+    True <- recBool @FreeD $ fmap (\0 -> False) free1
+    return ()
 
   -- -- Test recursion of IORefGraph
 
