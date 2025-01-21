@@ -21,6 +21,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
+-- {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file -ddump-file-prefix=/tmp/foo #-}
 
 module Main where
 
@@ -156,87 +157,117 @@ type RecBool d m = [e|CataE|recBool|] [f|bool|] (BoolFormula [f|int|] [f|bool|])
 type RecInt d m = [e|CataE|recInt|] [f|int|] (IntFormula [f|bool|] [f|int|]) (m Int)
 type RunCIO d m a = E [k|runCIO|] (CIO a -> m a)
 
-type RecApp d m =
+type RecAppBase d m =
   ( Monad m
-  , KFn (RecBool d m)
-  , KFn (RecInt d m)
   , forall a. KFn (RunCIO d m a)
   , Show [f|bool|]
   , Show [f|int|]
   ) :: Constraint
 
+type RecApp d m =
+  ( RecAppBase d m
+  , KFn (RecBool d m)
+  , KFn (RecInt d m)
+  ) :: Constraint
+
 recBool :: forall d m. RecApp d m => [f|bool|] -> m Bool
-recBool = kfn @(RecBool d m) (boolAlgebra @d)
+recBool = cata @(RecBool d m) (boolAlgebra @d (recInt @d) (recBool @d))
 
 recInt :: forall d m. RecApp d m => [f|int|] -> m Int
-recInt = kfn @(RecInt d m) (intAlgebra @d)
+recInt = cata @(RecInt d m) (intAlgebra @d (recBool @d) (recInt @d))
 
-intAlgebra :: forall d m. RecApp d m => IntFormula [f|bool|] [f|int|] -> m Int
-intAlgebra (Count xs) = do
-  kfn @(RunCIO d _ _) incCounter
-  args <- mapM (recBool @d) xs
-  let result = sum $ map fromEnum args
-  kfn @(RunCIO d _ _) $ lift do print ("[]", result, args, xs)
-  return result
-intAlgebra (Plus x y) = do
-  args <- (,) <$> (recInt @d) x <*> (recInt @d) y
-  let result = uncurry (+) args
-  kfn @(RunCIO d _ _) $ lift do print ("++", result, args, x, y)
-  return result
-intAlgebra (IntLit i) = do
-  kfn @(RunCIO d _ _) $ lift do print ("II", i)
-  return i
+intAlgebra :: forall d m. (RecAppBase d m)
+  => ([f|bool|] -> m Bool)
+  -> ([f|int|] -> m Int)
+  -> IntFormula [f|bool|] [f|int|]
+  -> m Int
+intAlgebra myRecBool myRecInt = \case
+  Count xs -> do
+    kfn @(RunCIO d _ _) incCounter
+    args <- mapM myRecBool xs
+    let result = sum $ map fromEnum args
+    kfn @(RunCIO d _ _) $ lift do print ("[]", result, args, xs)
+    return result
+  Plus x y -> do
+    args <- (,) <$> myRecInt x <*> myRecInt y
+    let result = uncurry (+) args
+    kfn @(RunCIO d _ _) $ lift do print ("++", result, args, x, y)
+    return result
+  IntLit i -> do
+    kfn @(RunCIO d _ _) $ lift do print ("II", i)
+    return i
 
-boolAlgebra :: forall d m. RecApp d m => BoolFormula [f|int|] [f|bool|] -> m Bool
-boolAlgebra (And x y) = do
-  args <- (,) <$> (recBool @d) x <*> (recBool @d) y
-  let result = uncurry (&&) args
-  kfn @(RunCIO d _ _) $ lift do print ("&&", result, args, x, y)
-  return result
-boolAlgebra (Not x) = do
-  args <- (recBool @d) x
-  let result = not args
-  kfn @(RunCIO d _ _) $ lift do print ("!!", result, args, x)
-  return result
-boolAlgebra (Leq x y) = do
-  kfn @(RunCIO d _ _) incCounter
-  args <- (,) <$> (recInt @d) x <*> (recInt @d) y
-  let result = uncurry (<=) args
-  kfn @(RunCIO d _ _) $ lift do print ("<=", result, args, x, y)
-  return result
-boolAlgebra (BoolLit b) = do
-  kfn @(RunCIO d _ _) $ lift do print ("BB", b)
-  return b
+boolAlgebra :: forall d m. (RecAppBase d m)
+  => ([f|int|] -> m Int)
+  -> ([f|bool|] -> m Bool)
+  -> BoolFormula [f|int|] [f|bool|]
+  -> m Bool
+boolAlgebra myRecInt myRecBool = \case
+  And x y -> do
+    args <- (,) <$> myRecBool x <*> myRecBool y
+    let result = uncurry (&&) args
+    kfn @(RunCIO d _ _) $ lift do print ("&&", result, args, x, y)
+    return result
+  Not x -> do
+    args <- myRecBool x
+    let result = not args
+    kfn @(RunCIO d _ _) $ lift do print ("!!", result, args, x)
+    return result
+  Leq x y -> do
+    kfn @(RunCIO d _ _) incCounter
+    args <- (,) <$> myRecInt x <*> myRecInt y
+    let result = uncurry (<=) args
+    kfn @(RunCIO d _ _) $ lift do print ("<=", result, args, x, y)
+    return result
+  BoolLit b -> do
+    kfn @(RunCIO d _ _) $ lift do print ("BB", b)
+    return b
 
--- boolAlgebraVar ::
---   forall d m.
---   RecApp (VarD d) (ReaderT (Word -> Bool) m)
---   => (Word -> Bool)
---   -> Compose (BoolFormula [f|int|]) (Either Word) [f|bool|]
---   -> m Bool
--- boolAlgebraVar valuation (Compose fr) = runReaderT undefined valuation
--- 
--- data VarD d
--- type instance Definition (VarD d) =
---   Name "bool" (Either Word [f|bool|])
---   :+: Name "recBool" (Valuate [k|recBool|])
---   :+: Follow (LiftUp d)
--- 
--- data Valuate key
--- instance
---   ( Monad m
---   , KFn (E key (Recur p r a (m b)))
---   )
---   => MonadFn (E (K Zero (Valuate key)) ((p -> r -> a -> m b) -> p -> Either a r -> ReaderT (a -> b) m b)
---   where
---   monadfn (p, er) = case er of
---     Left x -> ($ x) <$> ask
---     Right r -> lift $ monadfnn @(E key (p, r) b m) (p, r)
--- 
--- instance
---   (Monad m, MonadFn (E (K n (Valuate key)) a b m)) =>
---   MonadFnN (E (K n (Valuate key)) a b m) where
---   monadfnn = monadfn @(E (K n (Valuate key)) a b m)
+type RecBoolVar d m = ValuateE
+  [k|recBool|] () [f|bool|] 
+  (Compose (BoolFormula [f|int|]) (Either Word) [f|bool|])
+  Bool Word m
+
+newtype VarT m a = VarT {unVarT :: ReaderT (Word -> Bool) m a}
+  deriving newtype (Functor, Applicative, Monad)
+
+type instance Unlift (VarT m) = m
+
+instance MonadTrans VarT where
+  lift = VarT . lift
+
+
+type RecAppVar d m =
+  ( RecAppBase (VarD d) (VarT m)
+  , KFn (RecBoolVar d m)
+  , KFn (RecInt (VarD d) (VarT m))
+  ) :: Constraint
+
+recBoolVar :: forall d m. RecAppVar d m => Either Word [f|bool|] -> VarT m Bool
+recBoolVar = (VarT .) $ ($ ()) $ kfn @(RecBoolVar d m) \_ _ ->
+  unVarT . boolAlgebra @(VarD d) (recIntVar @d) (recBoolVar @d) . getCompose
+
+recIntVar :: forall d m. RecAppVar d m => [f|int|] -> VarT m Int
+recIntVar = cata @(RecInt (VarD d) (VarT m))
+  (intAlgebra @(VarD d) (recBoolVar @d) (recIntVar @d))
+
+data VarD d
+type instance Definition (VarD d) =
+  Name "bool" (Either Word [f|bool|])
+  :+: Name "recBool" (Valuate [k|recBool|])
+  :+: Follow (LiftUp d)
+
+type ValuateE key p r a b v m  = E (K Zero (Valuate key))
+  ((p -> r -> a -> ReaderT (v -> b) m b) -> p -> Either v r -> ReaderT (v -> b) m b)
+
+data Valuate key
+instance
+  (Monad m, KFn (E key (Recur p r a (ReaderT (v -> b) m b)))) =>
+  KFn (ValuateE key p r a b v m)
+  where
+  kfn algebra p er = case er of
+    Left x -> ($ x) <$> ask
+    Right r -> kfn @(E key (Recur p r a (ReaderT (v -> b) m b))) algebra p r
 
 
 data D0
@@ -256,9 +287,8 @@ type instance Definition FixD =
 
 data VarFixD
 type instance Definition VarFixD =
-  Name "recBool" RecFix.Rec
-  :+: Name "bool" (Fix (Compose (BoolFormula Int) (Either Word)))
-  :+: Follow D0
+  Name "bool" (Fix (Compose (BoolFormula Int) (Either Word)))
+  :+: Follow FixD
 
 -- data D1_ d
 -- type instance Definition (D1_ d) =
@@ -513,13 +543,13 @@ main = do
   -- Test the algebrae
 
   2 <- runCIO do
-    False <- boolAlgebra @D0 $ And True False 
-    True <- boolAlgebra @D0 $ Not False
-    True <- boolAlgebra @D0 $ Leq 1 2
-    False <- boolAlgebra @D0 $ BoolLit False
-    3 <- intAlgebra @D0 $ Count [False, True, True, False, True]
-    5 <- intAlgebra @D0 $ Plus 3 2
-    9 <- intAlgebra @D0 $ IntLit 9
+    False <- boolAlgebra @D0 return return $ And True False 
+    True <- boolAlgebra @D0 return return $ Not False
+    True <- boolAlgebra @D0 return return $ Leq 1 2
+    False <- boolAlgebra @D0 return return $ BoolLit False
+    3 <- intAlgebra @D0 return return $ Count [False, True, True, False, True]
+    5 <- intAlgebra @D0 return return $ Plus 3 2
+    9 <- intAlgebra @D0 return return $ IntLit 9
     return ()
 
   -- Test recursion of Fix
@@ -532,17 +562,13 @@ main = do
     True <- recBool @FixD $ fix1_val False
     return ()
 
-  -- 2 <- runCIO do
-  --   False <- cata @(K Zero RecFix.Rec) @VFixE
-  --     (boolAlgebraVar @(D1 VFixE) (\0 -> True))
-  --     (unRecM $ cataRec @(RecBool (D1 VFixE) _ _) $ fix1_var)
-  --   return ()
+  2 <- runCIO do
+    False <- runReaderT (unVarT $ recBoolVar @VarFixD (Right fix1_var)) (\0 -> True)
+    return ()
 
-  -- 2 <- runCIO do
-  --   True <- cata @(K Zero RecFix.Rec) @VFixE
-  --     (boolAlgebraVar @(D1 VFixE) (\0 -> False))
-  --     (unRecM $ cataRec @(RecBool (D1 VFixE) _ _) $ fix1_var)
-  --   return ()
+  2 <- runCIO do
+    True <- runReaderT (unVarT $ recBoolVar @VarFixD (Right fix1_var)) (\0 -> False)
+    return ()
 
   -- -- Test recursion of Free
 
