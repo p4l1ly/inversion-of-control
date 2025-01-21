@@ -15,8 +15,8 @@ module InversionOfControl.Recursion where
 import InversionOfControl.TypeDict
 import InversionOfControl.KFn
 
-type Recur p r a b = ((p -> r -> a -> b) -> p -> r -> b)
-type Cata r a b = ((a -> b) -> r -> b)
+type Recur p r a b = (p -> r -> a -> b) -> p -> r -> b
+type Cata r a b = (a -> b) -> r -> b
 
 type RecurE n k p r a b = KE n k (Recur p r a b)
 type CataE n k r a b = RecurE n k () r a b

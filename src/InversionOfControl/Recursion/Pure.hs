@@ -22,6 +22,13 @@ import InversionOfControl.KFn
 import InversionOfControl.Lift
 import InversionOfControl.Recursion
 
+data Go
+instance
+  Applicative m =>
+  KFn (E (K n Go) (r -> m r))
+  where
+  kfn = pure
+
 data Rec
 instance
   Applicative m =>
