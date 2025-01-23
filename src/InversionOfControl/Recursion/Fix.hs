@@ -25,8 +25,6 @@ import InversionOfControl.Lift
 import InversionOfControl.Recursion
 
 data Rec
-instance
-  KFn (RecurE n Rec p (Fix f) (f (Fix f)) b)
-  where
+instance KFn (RecurE n Rec p (Fix f) (f (Fix f)) b) where
   kfn algebra p r@(Fix a) = algebra p r a
 
