@@ -143,10 +143,10 @@ runCIO act = do
 --   ) => Sum Int
 --   -> self
 --   -> BoolFormula bool [f|r|]
---   -> RecDag.SemigroupA (RecIO.RecFixD d) Int
+--   -> RecDag.SemigroupA (RecDag.RecFixD d) Int
 -- boolShareCount (Sum p) _ fr = RecDag.SemigroupA $ Compose do
 --   let RecDag.SemigroupA (Compose bef) =
---         for fr \(RecDag.RefFix child) -> RecIO.SemigroupA $ Compose do
+--         for fr \(RecDag.RefFix child) -> RecDag.SemigroupA $ Compose do
 --           recur <- ask
 --           let RecDag.SemigroupA (Compose bef) = recur (Sum 1) child
 --           bef
@@ -323,69 +323,16 @@ type instance Definition FreeD =
 
 data DagD
 type instance Definition DagD =
-  Name "recBool" (RecDag.RecFix (Succ Zero) CIO)
+  Name "recBool" (RecDag.RecFix (Succ Zero))
   :+: Name "bool" (RecDag.RefFix (BoolFormula Int))
-  :+: Follow (LiftUp D0)
+  :+: Name "lift" ()
+  :+: Follow D0
 
 data VarDagD
 type instance Definition VarDagD =
   Name "bool" (RecDag.RefFix (Compose (BoolFormula Int) (Either Word)))
   :+: Follow DagD
 
--- data D1_ d
--- type instance Definition (D1_ d) =
---   Name "refBool" [g|r|]
---   :+: Follow ([fk|recurd|] "recBool" d D0)
-
--- data D1 d
--- type instance Definition (D1 d) = Follow (LiftUp (D1_ d))
-
--- data D2_ d d1
--- type instance Definition (D2_ d d1) =
---   Name "refInt" [g|r|]
---   :+: Follow ([fk|recurd|] "recInt" d d1)
-
--- data D2 d d1
--- type instance Definition (D2 d d1) = Follow (LiftUp (D2_ d (D1_ d1)))
-
--- newtype RecM r b c = RecM {unRecM :: ReaderT (() -> r -> RecM r b b) CIO c}
---   deriving newtype (Functor, Applicative, Monad)
--- 
--- instance GMonadTrans (RecM r b) (ReaderT (() -> r -> RecM r b b) CIO) where
---   glift = RecM
-
--- data GenFixE (f :: Type -> Type)
--- type instance Definition (GenFixE f) =
---   Name "p" ()
---   :+: Name "f" (Kindy f)
---   :+: Name "r" (Fix f)
---   :+: Name "a" (f [gs|r|])
---   :+: Name "m" (Kindy CIO)
---   :+: Name "c" (Kindy (ReaderT (() -> [gs|r|] -> RecM [gs|r|] Bool Bool) CIO))
---   :+: Name "bm" (Kindy (RecM [gs|r|] Bool))
---   :+: Name "bx" Bool
---   :+: Name "b" ([fsk|bm|] [gs|bx|])
---   :+: Name "recurd" (Kindy RecurD)
---   :+: End
--- type FixE = GenFixE (BoolFormula Int)
--- type VFixE = GenFixE (Compose (BoolFormula Int) (Either Word))
-
--- data GenGraphE (f :: Type -> Type)
--- type instance Definition (GenGraphE f) =
---   Name "p" ()
---   :+: Name "f" (Kindy f)
---   :+: Name "r" (RecDag.RefFix f)
---   :+: Name "a" (f [gs|r|])
---   :+: Name "m" (Kindy CIO)
---   :+: Name "c" (Kindy (ReaderT (() -> RecDag.Ref (f (RecIO.RefFix f)) -> RecM (RecIO.Ref (f (RecIO.RefFix f))) Bool Bool) CIO))
---   :+: Name "bm" (Kindy (RecM (RecDag.Ref (f (RecIO.RefFix f))) Bool))
---   :+: Name "bx" Bool
---   :+: Name "b" ([fsk|bm|] [gs|bx|])
---   :+: Name "recurd" (Kindy RecDag.FixRecurD)
---   :+: End
--- type GraphE = GenGraphE (BoolFormula Int)
--- type VGraphE = GenGraphE (Compose (BoolFormula Int) (Either Word))
--- 
 -- data SemigroupE
 -- type instance Definition SemigroupE =
 --   Name "p" (Sum Int)
@@ -394,72 +341,64 @@ type instance Definition VarDagD =
 --   :+: Name "a" (BoolFormula Int [gs|r|])
 --   :+: Name "m" (Kindy IO)
 --   :+: Name "bx" Int
---   :+: Name "b" (RecDag.SemigroupA (RecIO.RecFixD SemigroupE) [gs|bx|])
---   :+: Name "c" (Kindy (RecDag.SemigroupA (RecIO.RecFixD SemigroupE)))
+--   :+: Name "b" (RecDag.SemigroupA (RecDag.RecFixD SemigroupE) [gs|bx|])
+--   :+: Name "c" (Kindy (RecDag.SemigroupA (RecDag.RecFixD SemigroupE)))
 --   :+: End
--- 
--- data FreeE
--- type instance Definition FreeE =
---   Name "p" ()
---   :+: Name "f" (Kindy (BoolFormula Int))
---   :+: Name "r" (Free [fsk|f|] Bool)
---   :+: Name "a" ([fsk|f|] [gs|r|])
---   :+: Name "m" (Kindy CIO)
---   :+: Name "c" (Kindy (ReaderT (() -> [gs|r|] -> RecM [gs|r|] Bool Bool) CIO))
---   :+: Name "bm" (Kindy (RecM [gs|r|] Bool))
---   :+: Name "bx" Bool
---   :+: Name "b" ([fsk|bm|] [gs|bx|])
---   :+: Name "recurd" (Kindy RecurD)
---   :+: End
--- 
--- newtype BoolIntFormula = BoolIntFormula (BoolFormula IntBoolFormula BoolIntFormula)
---   deriving newtype Show
--- newtype IntBoolFormula = IntBoolFormula (IntFormula BoolIntFormula IntBoolFormula)
---   deriving newtype Show
--- 
--- data RecBoolInt
--- instance
---   ( Monad [fk|m|]
---   , [f|r|] ~ BoolIntFormula
---   , [f|a|] ~ BoolFormula IntBoolFormula BoolIntFormula
---   , [f|c|] ~ Kindy (ReaderT ([f|p|] -> [f|r|] -> [f|b|]) [fk|m|])
---   ) ⇒
---   Recur (K n RecBoolInt) d
---   where
---   recur algebra act = do
---     let rec p r@(BoolIntFormula fr) = algebra p r fr
---     runReaderT act rec
--- 
--- data RecIntBool
--- instance
---   ( Monad [fk|m|]
---   , [f|r|] ~ IntBoolFormula
---   , [f|a|] ~ IntFormula BoolIntFormula IntBoolFormula
---   , [f|c|] ~ Kindy (ReaderT ([f|p|] -> [f|r|] -> [f|b|]) [fk|m|])
---   ) ⇒
---   Recur (K n RecIntBool) d
---   where
---   recur algebra act = do
---     let rec p r@(IntBoolFormula fr) = algebra p r fr
---     runReaderT act rec
--- 
--- newtype BoolIntFormula' = BoolIntFormula' (BoolFormula (RecDag.Ref IntBoolFormula') (RecIO.Ref BoolIntFormula'))
--- newtype IntBoolFormula' = IntBoolFormula' (IntFormula (RecDag.Ref BoolIntFormula') (RecIO.Ref IntBoolFormula'))
--- 
--- data RecBoolInt' n
--- instance
---   ( Monad [fk|m|]
---   , [f|r|] ~ RecDag.Ref BoolIntFormula'
---   , [f|a|] ~ BoolFormula (RecDag.Ref IntBoolFormula') (RecIO.Ref BoolIntFormula')
---   , Recur (K n (RecDag.Rec n')) (RecBoolInt'D d)
---   ) =>
---   Recur (K n (RecBoolInt' n')) d
---   where
---   recur algebra act =
---     recur @(K n (RecDag.Rec n')) @(RecBoolInt'D d)
---       (\p r (BoolIntFormula' fr) -> algebra p r fr)
---       act
--- 
+
+newtype BoolIntFormula = BoolIntFormula (BoolFormula IntBoolFormula BoolIntFormula)
+  deriving newtype Show
+newtype IntBoolFormula = IntBoolFormula (IntFormula BoolIntFormula IntBoolFormula)
+  deriving newtype Show
+
+data RecIntBool
+instance KFn (RecurE n RecIntBool p IntBoolFormula (IntFormula BoolIntFormula IntBoolFormula) b)
+  where kfn algebra p r@(IntBoolFormula fr) = algebra p r fr
+
+data RecBoolInt
+instance KFn (RecurE n RecBoolInt p BoolIntFormula (BoolFormula IntBoolFormula BoolIntFormula) b)
+  where kfn algebra p r@(BoolIntFormula fr) = algebra p r fr
+
+data BoolIntD
+type instance Definition BoolIntD =
+  Name "recBool" RecBoolInt
+  :+: Name "recInt" RecIntBool
+  :+: Name "bool" BoolIntFormula
+  :+: Name "int" IntBoolFormula
+  :+: Follow D0
+
+type BoolIntFormula'Body = (BoolFormula (RecDag.Ref IntBoolFormula') (RecDag.Ref BoolIntFormula'))
+type IntBoolFormula'Body = (IntFormula (RecDag.Ref BoolIntFormula') (RecDag.Ref IntBoolFormula'))
+newtype BoolIntFormula' = BoolIntFormula' BoolIntFormula'Body
+newtype IntBoolFormula' = IntBoolFormula' IntBoolFormula'Body
+
+data RecBoolInt' n0
+instance
+  KFn (RecurE nb (RecDag.Rec n0) p (RecDag.Ref BoolIntFormula') BoolIntFormula' (mb xb))
+  => KFn (RecurE nb (RecBoolInt' n0) p (RecDag.Ref BoolIntFormula') BoolIntFormula'Body (mb xb))
+  where
+  kfn algebra p r =
+    kfn @(RecurE nb (RecDag.Rec n0) p (RecDag.Ref BoolIntFormula') BoolIntFormula' (mb xb))
+      (\p r (BoolIntFormula' fr) -> algebra p r fr) p r
+
+data RecIntBool' n0
+instance
+  KFn (RecurE nb (RecDag.Rec n0) p (RecDag.Ref IntBoolFormula') IntBoolFormula' (mb xb))
+  => KFn (RecurE nb (RecIntBool' n0) p (RecDag.Ref IntBoolFormula') IntBoolFormula'Body (mb xb))
+  where
+  kfn algebra p r =
+    kfn @(RecurE nb (RecDag.Rec n0) p (RecDag.Ref IntBoolFormula') IntBoolFormula' (mb xb))
+      (\p r (IntBoolFormula' fr) -> algebra p r fr) p r
+
+data BoolIntD'
+type instance Definition BoolIntD' =
+  Name "recBool" (RecBoolInt' (Succ (Succ Zero)))
+  :+: Name "lift" ()
+  :+: Name "recInt" (RecIntBool' (Succ Zero))
+  :+: Name "bool" (RecDag.Ref BoolIntFormula')
+  :+: Name "int" (RecDag.Ref IntBoolFormula')
+  :+: Name "lift" ()
+  :+: Follow D0
+
 -- data RecBoolInt'D d
 -- type instance Definition (RecBoolInt'D d) = Name "a" BoolIntFormula' :+: Follow d
 -- 
@@ -467,7 +406,7 @@ type instance Definition VarDagD =
 -- instance
 --   ( Monad [fk|m|]
 --   , [f|r|] ~ RecDag.Ref IntBoolFormula'
---   , [f|a|] ~ IntFormula (RecDag.Ref BoolIntFormula') (RecIO.Ref IntBoolFormula')
+--   , [f|a|] ~ IntFormula (RecDag.Ref BoolIntFormula') (RecDag.Ref IntBoolFormula')
 --   , Recur (K n (RecDag.Rec n')) (RecIntBool'D d)
 --   ) =>
 --   Recur (K n (RecIntBool' n')) d
@@ -520,12 +459,12 @@ type instance Definition VarDagD =
 -- type instance Definition BoolInt'E =
 --   Name "p" ()
 --   :+: Name "r" (RecDag.Ref BoolIntFormula')
---   :+: Name "a" (BoolFormula (RecDag.Ref IntBoolFormula') (RecIO.Ref BoolIntFormula'))
+--   :+: Name "a" (BoolFormula (RecDag.Ref IntBoolFormula') (RecDag.Ref BoolIntFormula'))
 --   :+: Name "m" (Kindy CIO)
 --   :+: Name "bx" Bool
---   :+: Name "bm" (Kindy (RecM2 (RecDag.Ref BoolIntFormula') (RecIO.Ref IntBoolFormula') Bool Int))
+--   :+: Name "bm" (Kindy (RecM2 (RecDag.Ref BoolIntFormula') (RecDag.Ref IntBoolFormula') Bool Int))
 --   :+: Name "b" ([fsk|bm|] [gs|bx|])
---   :+: Name "c" (Kindy (RecM2In1 (RecDag.Ref BoolIntFormula') (RecIO.Ref IntBoolFormula') Bool Int))
+--   :+: Name "c" (Kindy (RecM2In1 (RecDag.Ref BoolIntFormula') (RecDag.Ref IntBoolFormula') Bool Int))
 --   :+: Name "recurd" (Kindy RecurD)
 --   :+: End
 -- 
@@ -533,52 +472,52 @@ type instance Definition VarDagD =
 -- type instance Definition IntBool'E =
 --   Name "p" ()
 --   :+: Name "r" (RecDag.Ref IntBoolFormula')
---   :+: Name "a" (IntFormula (RecDag.Ref BoolIntFormula') (RecIO.Ref IntBoolFormula'))
---   :+: Name "m" (Kindy (RecM2In1 (RecDag.Ref BoolIntFormula') (RecIO.Ref IntBoolFormula') Bool Int))
+--   :+: Name "a" (IntFormula (RecDag.Ref BoolIntFormula') (RecDag.Ref IntBoolFormula'))
+--   :+: Name "m" (Kindy (RecM2In1 (RecDag.Ref BoolIntFormula') (RecDag.Ref IntBoolFormula') Bool Int))
 --   :+: Name "bx" Int
---   :+: Name "bm" (Kindy (RecM2 (RecDag.Ref BoolIntFormula') (RecIO.Ref IntBoolFormula') Bool Int))
+--   :+: Name "bm" (Kindy (RecM2 (RecDag.Ref BoolIntFormula') (RecDag.Ref IntBoolFormula') Bool Int))
 --   :+: Name "b" ([fsk|bm|] [gs|bx|])
---   :+: Name "c" (Kindy (RecM2In2 (RecDag.Ref BoolIntFormula') (RecIO.Ref IntBoolFormula') Bool Int))
+--   :+: Name "c" (Kindy (RecM2In2 (RecDag.Ref BoolIntFormula') (RecDag.Ref IntBoolFormula') Bool Int))
 --   :+: Name "recurd" (Kindy RecurD)
 --   :+: End
--- 
--- fix2 :: Bool -> Bool -> BoolIntFormula
--- fix2 val1 val2 = BoolIntFormula $ And
---   (BoolIntFormula $ Not $ BoolIntFormula $ And leq (BoolIntFormula $ BoolLit val1))
---   (BoolIntFormula $ And leq (BoolIntFormula $ Not $ BoolIntFormula $ BoolLit val1))
---   where
---     leq = BoolIntFormula $ Leq count2 (IntBoolFormula $ IntLit 2)
---     count = IntBoolFormula $ Count [tv2, BoolIntFormula $ BoolLit True, tv2]
---     count2 = IntBoolFormula $ Plus count count
---     tv2 = BoolIntFormula $ And (BoolIntFormula $ BoolLit True) (BoolIntFormula $ BoolLit val2)
--- 
--- iorefg2 :: Bool -> Bool -> IO (RecDag.Ref BoolIntFormula')
--- iorefg2 val1 val2 = do
---   v2 <- RecDag.buildTopo 0 $ BoolIntFormula' $ BoolLit val2
---   print ("v2", v2)
---   t <- RecDag.buildTopo 0 $ BoolIntFormula' $ BoolLit True
---   print ("t", t)
---   tv2 <- RecDag.buildTopo 1 $ BoolIntFormula' $ And t v2
---   print ("tv2", tv2)
---   count <- RecDag.buildTopo 2 $ IntBoolFormula' $ Count [tv2, t, tv2]
---   print ("count", count)
---   plus <- RecDag.buildTopo 3 $ IntBoolFormula' $ Plus count count
---   print ("plus", plus)
---   l1 <- RecDag.buildTopo 0 $ IntBoolFormula' $ IntLit 2
---   print ("l1", l1)
---   leq <- RecDag.buildTopo 3 $ BoolIntFormula' $ Leq plus l1
---   print ("leq", leq)
---   v1 <- RecDag.buildTopo 0 $ BoolIntFormula' $ BoolLit val1
---   print ("v1", v1)
---   nv1 <- RecDag.buildTopo 1 $ BoolIntFormula' $ Not v1
---   print ("nv1", nv1)
---   leqv1 <- RecDag.buildTopo 4 $ BoolIntFormula' $ And leq v1
---   print ("leqv1", leqv1)
---   leqnv1 <- RecDag.buildTopo 4 $ BoolIntFormula' $ And leq nv1
---   print ("leqnv1", leqnv1)
---   nleqv1 <- RecDag.buildTopo 5 $ BoolIntFormula' $ Not leqv1
---   print ("nleqv1", nleqv1)
---   RecDag.buildTopo 6 $ BoolIntFormula' $ And nleqv1 leqnv1
+
+fix2 :: Bool -> Bool -> BoolIntFormula
+fix2 val1 val2 = BoolIntFormula $ And
+  (BoolIntFormula $ Not $ BoolIntFormula $ And leq (BoolIntFormula $ BoolLit val1))
+  (BoolIntFormula $ And leq (BoolIntFormula $ Not $ BoolIntFormula $ BoolLit val1))
+  where
+    leq = BoolIntFormula $ Leq count2 (IntBoolFormula $ IntLit 2)
+    count = IntBoolFormula $ Count [tv2, BoolIntFormula $ BoolLit True, tv2]
+    count2 = IntBoolFormula $ Plus count count
+    tv2 = BoolIntFormula $ And (BoolIntFormula $ BoolLit True) (BoolIntFormula $ BoolLit val2)
+
+iorefg2 :: Bool -> Bool -> IO (RecDag.Ref BoolIntFormula')
+iorefg2 val1 val2 = do
+  v2 <- RecDag.buildTopo 0 $ BoolIntFormula' $ BoolLit val2
+  print ("v2", v2)
+  t <- RecDag.buildTopo 0 $ BoolIntFormula' $ BoolLit True
+  print ("t", t)
+  tv2 <- RecDag.buildTopo 1 $ BoolIntFormula' $ And t v2
+  print ("tv2", tv2)
+  count <- RecDag.buildTopo 2 $ IntBoolFormula' $ Count [tv2, t, tv2]
+  print ("count", count)
+  plus <- RecDag.buildTopo 3 $ IntBoolFormula' $ Plus count count
+  print ("plus", plus)
+  l1 <- RecDag.buildTopo 0 $ IntBoolFormula' $ IntLit 2
+  print ("l1", l1)
+  leq <- RecDag.buildTopo 3 $ BoolIntFormula' $ Leq plus l1
+  print ("leq", leq)
+  v1 <- RecDag.buildTopo 0 $ BoolIntFormula' $ BoolLit val1
+  print ("v1", v1)
+  nv1 <- RecDag.buildTopo 1 $ BoolIntFormula' $ Not v1
+  print ("nv1", nv1)
+  leqv1 <- RecDag.buildTopo 4 $ BoolIntFormula' $ And leq v1
+  print ("leqv1", leqv1)
+  leqnv1 <- RecDag.buildTopo 4 $ BoolIntFormula' $ And leq nv1
+  print ("leqnv1", leqnv1)
+  nleqv1 <- RecDag.buildTopo 5 $ BoolIntFormula' $ Not leqv1
+  print ("nleqv1", nleqv1)
+  RecDag.buildTopo 6 $ BoolIntFormula' $ And nleqv1 leqnv1
 
 main ∷ IO ()
 main = do
@@ -647,41 +586,31 @@ main = do
       True <- runReaderT (recBoolVar @(LiftUp VarDagD) (Right iorefg1_var')) (\0 -> False)
       return ()
 
-  -- 1 <- runCIO do
-  --   True <- cata @(K (Succ Zero) (RecDag.RecFix (Succ Zero))) @VGraphE
-  --     (boolAlgebraVar @(D1 VGraphE) (\0 -> False))
-  --     (unRecM $ cataRec @(RecBool (D1 VGraphE) _ _) $ iorefg1_var')
-  --   return ()
+  -- Test mutual recursion of "Fix"
 
-  -- -- Test mutual recursion of "Fix"
+  6 <- runCIO do
+    True <- recBool @BoolIntD $ fix2 False False
+    return ()
 
-  -- 6 <- runCIO do
-  --   True <- cata @(K (Succ Zero) RecBoolInt) @BoolIntE
-  --     (boolAlgebra @(D2 IntBoolE BoolIntE)) $ do
-  --       cata @(K (Succ (Succ Zero)) RecIntBool) @IntBoolE
-  --         (intAlgebra @(D2 IntBoolE BoolIntE)) $ do
-  --           (unRecM2 $ cataRec @(RecBool (D2 IntBoolE BoolIntE) _ _) (fix2 False False))
-  --   return ()
+  6 <- runCIO do
+    False <- recBool @BoolIntD $ fix2 True False
+    return ()
 
-  -- 6 <- runCIO do
-  --   False <- cata @(K (Succ Zero) RecBoolInt) @BoolIntE
-  --     (boolAlgebra @(D2 IntBoolE BoolIntE)) $ do
-  --       cata @(K (Succ (Succ Zero)) RecIntBool) @IntBoolE
-  --         (intAlgebra @(D2 IntBoolE BoolIntE)) $ do
-  --           (unRecM2 $ cataRec @(RecBool (D2 IntBoolE BoolIntE) _ _) (fix2 True False))
-  --   return ()
+  6 <- runCIO do
+    False <- recBool @BoolIntD $ fix2 False True
+    return ()
 
-  -- 6 <- runCIO do
-  --   False <- cata @(K (Succ Zero) RecBoolInt) @BoolIntE
-  --     (boolAlgebra @(D2 IntBoolE BoolIntE)) $ do
-  --       cata @(K (Succ (Succ Zero)) RecIntBool) @IntBoolE
-  --         (intAlgebra @(D2 IntBoolE BoolIntE)) $ do
-  --           (unRecM2 $ cataRec @(RecBool (D2 IntBoolE BoolIntE) _ _) (fix2 False True))
-  --   return ()
+  -- Test mutual recursion of IORefGraph
 
-  -- -- Test mutual recursion of IORefGraph
+  iorefg2_00 <- iorefg2 False False
+  2 <- runCIO do
+    RecDag.runRecT @(Succ Zero) do
+      RecDag.runRecT @(Succ (Succ Zero)) do
+        True <- recBool @BoolIntD' iorefg2_00
+          :: RecDag.RecT () BoolIntFormula' Bool
+              (RecDag.RecT () IntBoolFormula' Int CIO) Bool
+        return ()
 
-  -- iorefg2_00 <- iorefg2 False False
   -- 2 <- runCIO do
   --   True <- cata @(K (Succ Zero) (RecBoolInt' (Succ (Succ Zero)))) @BoolInt'E
   --     (boolAlgebra @(D2 IntBool'E BoolInt'E)) $ do

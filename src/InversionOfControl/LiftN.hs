@@ -9,6 +9,7 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module InversionOfControl.LiftN where
 
@@ -24,3 +25,7 @@ instance (LiftN n m (Unlift mt), GMonadTrans mt, Monad (Unlift mt)) ⇒ LiftN (S
 
 instance LiftN Zero m m where
   liftn = id
+
+type family UnliftN (n ∷ Type) (m ∷ Type → Type) :: Type → Type where
+  UnliftN Zero m = m
+  UnliftN (Succ n) m = Unlift (UnliftN n m)

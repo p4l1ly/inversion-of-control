@@ -38,6 +38,7 @@ import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.Free
 import InversionOfControl.KFn
+import InversionOfControl.GMonadTrans
 import GHC.TypeLits (Symbol)
 import Data.Kind
 
@@ -93,17 +94,17 @@ runRecT act = do
   cacheRef <- liftn @n0 $ newIORef HM.empty
   runReaderT act cacheRef
 
-data Rec n0 (m0 :: Type -> Type)
+data Rec n0
 instance
   ( Monad mb
-  , Monad m0
-  , LiftN nb (RecT p a xb m0) mb
-  , LiftN n0 IO m0
+  , Monad (UnliftN (Succ nb) mb)
+  , LiftN nb (RecT p a xb (UnliftN (Succ nb) mb)) mb
+  , LiftN n0 IO (Unlift (UnliftN nb mb))
   , Eq p, Hashable p
-  ) => KFn (RecurE nb (Rec n0 m0) p (Ref a) a (mb xb))
+  ) => KFn (RecurE nb (Rec n0) p (Ref a) a (mb xb))
  where
   kfn algebra p r@(Ref name ioref) = do
-    cacheRef <- liftn @nb @(RecT p a xb m0) ask
+    cacheRef <- liftn @nb @(RecT p a xb (UnliftN (Succ nb) mb)) ask
     cache <- liftIO' $ readIORef cacheRef
     case HM.lookup (p, name) cache of
       Just b -> return b
@@ -114,24 +115,29 @@ instance
         return result
    where
     liftIO' :: IO x -> mb x
-    liftIO' = liftn @nb @(RecT p a xb m0) . lift . liftn @n0
+    liftIO' = liftn @nb @(RecT p a xb (UnliftN (Succ nb) mb)) . lift . liftn @n0
 
-data RecFix n0 (m0 :: Type -> Type)
+data RecFix n0
 instance
-  KFn (RecurE nb (Rec n0 m0) p (Ref (f (RefFix f))) (f (RefFix f)) (mb xb))
-  => KFn (RecurE nb (RecFix n0 m0) p (RefFix f) (f (RefFix f)) (mb xb))
+  KFn (RecurE nb (Rec n0) p (Ref (f (RefFix f))) (f (RefFix f)) (mb xb))
+  => KFn (RecurE nb (RecFix n0) p (RefFix f) (f (RefFix f)) (mb xb))
   where
   kfn algebra p (RefFix r) =
-    kfn @(RecurE nb (Rec n0 m0) p (Ref (f (RefFix f))) (f (RefFix f)) (mb xb))
-      (\p r fr -> algebra p (RefFix r) fr)
-      p r
+    kfn @(RecurE nb (Rec n0) p (Ref (f (RefFix f))) (f (RefFix f)) (mb xb))
+      (\p r fr -> algebra p (RefFix r) fr) p r
 
--- type SemigroupM d = ReaderT ([f|p|] -> [f|r|] -> SemigroupA d [f|bx|]) [fk|m|]
--- newtype SemigroupA d b = SemigroupA {unSemigroupA :: Compose (SemigroupM d) (SemigroupM d) b}
--- 
--- deriving instance Functor [fk|m|] => Functor (SemigroupA d)
--- deriving instance Applicative [fk|m|] => Applicative (SemigroupA d)
--- 
+data SemigroupEnv p r a xb mb = SemigroupEnv
+  { algebrae :: IORef (HM.HashMap (StableName (IORef (Word, a))) (Either xb (mb xb)))
+  , topos :: IORef (Word, A.Array Word (IORef (HM.HashMap r p)))
+  }
+
+type SemigroupM p r a xb mb m = ReaderT (SemigroupEnv p r a xb mb) m
+newtype SemigroupA p r a xb mb m b = SemigroupA
+  { unSemigroupA :: Compose (SemigroupM p r a xb mb m) (SemigroupM p r a xb mb m) b }
+
+deriving instance Functor m => Functor (SemigroupA p r a xb mb m)
+deriving instance Applicative m => Applicative (SemigroupA p r a xb mb m)
+
 -- data SemigroupRec
 -- instance
 --   ( Monad [fk|m|]
