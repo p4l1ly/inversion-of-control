@@ -244,7 +244,6 @@ recInt = cata @(RecInt d m) (intAlgebra @(RecD d))
 -- Valuated var recursion
 
 type VarT = ReaderT (Word -> Bool)
-type instance Unlift (ReaderT _ m) = m
 
 type RecAppVar d m =
   ( Monad m
@@ -611,45 +610,28 @@ main = do
               (RecDag.RecT () IntBoolFormula' Int CIO) Bool
         return ()
 
-  -- 2 <- runCIO do
-  --   True <- cata @(K (Succ Zero) (RecBoolInt' (Succ (Succ Zero)))) @BoolInt'E
-  --     (boolAlgebra @(D2 IntBool'E BoolInt'E)) $ do
-  --       cata @(K (Succ (Succ Zero)) (RecIntBool' (Succ Zero))) @IntBool'E
-  --         (intAlgebra @(D2 IntBool'E BoolInt'E)) $ do
-  --           (unRecM2 $ cataRec @(RecBool (D2 IntBool'E BoolInt'E) _ _) iorefg2_00)
-  --   return ()
+  iorefg2_10 <- iorefg2 True False
+  2 <- runCIO do
+    RecDag.runRecT @(Succ Zero) do
+      RecDag.runRecT @(Succ (Succ Zero)) do
+        False <- recBool @BoolIntD' iorefg2_10
+          :: RecDag.RecT () BoolIntFormula' Bool
+              (RecDag.RecT () IntBoolFormula' Int CIO) Bool
+        return ()
 
-  -- iorefg2_10 <- iorefg2 True False
-  -- 2 <- runCIO do
-  --   False <- cata @(K (Succ Zero) (RecBoolInt' (Succ (Succ Zero)))) @BoolInt'E
-  --     (boolAlgebra @(D2 IntBool'E BoolInt'E)) $ do
-  --       cata @(K (Succ (Succ Zero)) (RecIntBool' (Succ Zero))) @IntBool'E
-  --         (intAlgebra @(D2 IntBool'E BoolInt'E)) $ do
-  --           (unRecM2 $ cataRec @(RecBool (D2 IntBool'E BoolInt'E) _ _) iorefg2_10)
-  --   return ()
-
-  -- iorefg2_01 <- iorefg2 False True
-  -- 2 <- runCIO do
-  --   False <- cata @(K (Succ Zero) (RecBoolInt' (Succ (Succ Zero)))) @BoolInt'E
-  --     (boolAlgebra @(D2 IntBool'E BoolInt'E)) $ do
-  --       cata @(K (Succ (Succ Zero)) (RecIntBool' (Succ Zero))) @IntBool'E
-  --         (intAlgebra @(D2 IntBool'E BoolInt'E)) $ do
-  --           (unRecM2 $ cataRec @(RecBool (D2 IntBool'E BoolInt'E) _ _) iorefg2_01)
-  --   return ()
-
-  -- -- Test two-way recursion (the mutual one is unsupported)
-  -- 2 <- recur @(K Zero RecDag.SemigroupRecFix) @SemigroupE
-  --   (boolShareCount @SemigroupE)
-  --   $ RecDag.SemigroupA $ Compose do
-  --     recur <- ask
-  --     let RecDag.RefFix r = iorefg1_True
-  --     let RecDag.SemigroupA (Compose bef) = recur (Sum 1) r
-  --     bef
+  -- Test two-way recursion (the mutual one is unsupported)
+  2 <- RecDag.runSemigroupAFix @Zero
+    (RecDag.semigroupRecFix @Zero (Sum 1) iorefg1_True)
+    \(Sum p) _ fr -> RecDag.SemigroupA $ Compose do
+      let RecDag.SemigroupA (Compose bef) =
+            for fr \child -> RecDag.SemigroupA $ Compose do
+              let RecDag.SemigroupA (Compose bef) =
+                    RecDag.semigroupRecFix @Zero (Sum 1) child
+              bef
+      aft <- bef
+      return do (fromEnum (p > 1) +) . sum <$> aft
 
   -- -- Test recursion of composition of IORefGraph and Free
-  -- -- TODO
-
-  -- -- Cleanup
   -- -- TODO
 
   return ()

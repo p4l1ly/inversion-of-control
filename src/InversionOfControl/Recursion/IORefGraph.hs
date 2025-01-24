@@ -126,92 +126,91 @@ instance
     kfn @(RecurE nb (Rec n0) p (Ref (f (RefFix f))) (f (RefFix f)) (mb xb))
       (\p r fr -> algebra p (RefFix r) fr) p r
 
-data SemigroupEnv p r a xb mb = SemigroupEnv
-  { algebrae :: IORef (HM.HashMap (StableName (IORef (Word, a))) (Either xb (mb xb)))
-  , topos :: IORef (Word, A.Array Word (IORef (HM.HashMap r p)))
+type SemigroupTopos p a = (Word, A.Array Word (IORef (HM.HashMap (Ref a) p)))
+type SemigroupAlgebrae p a xb m = HM.HashMap
+  (StableName (IORef (Word, a)))
+  (Either xb (SemigroupM p a xb m xb))
+
+data SemigroupEnv p a xb m = SemigroupEnv
+  { algebrae :: IORef (SemigroupAlgebrae p a xb m)
+  , topos :: IORef (SemigroupTopos p a)
   }
 
-type SemigroupM p r a xb mb m = ReaderT (SemigroupEnv p r a xb mb) m
-newtype SemigroupA p r a xb mb m b = SemigroupA
-  { unSemigroupA :: Compose (SemigroupM p r a xb mb m) (SemigroupM p r a xb mb m) b }
+type SemigroupM p a xb m = ReaderT (SemigroupEnv p a xb m) m
+newtype SemigroupA p a xb m b = SemigroupA
+  { unSemigroupA :: Compose (SemigroupM p a xb m) (SemigroupM p a xb m) b }
 
-deriving instance Functor m => Functor (SemigroupA p r a xb mb m)
-deriving instance Applicative m => Applicative (SemigroupA p r a xb mb m)
+deriving instance Functor m => Functor (SemigroupA p a xb m)
+deriving instance Applicative m => Applicative (SemigroupA p a xb m)
 
--- data SemigroupRec
--- instance
---   ( Monad [fk|m|]
---   , Semigroup [f|p|]
---   , LiftN n IO [fk|m|]
---   , [f|r|] ~ Ref [f|a|]
---   , [f|c|] ~ Kindy (SemigroupA d)
---   , [f|b|] ~ SemigroupA d [f|bx|]
---   ) ⇒
---   Recur (K n SemigroupRec) d
---   where
---   recur algebra act = do
---     topos ∷ IORef (Word, A.Array Word (IORef (HM.HashMap [f|r|] [f|p|]))) <- liftn @n do
---       elems' <- replicateM 4 do newIORef HM.empty
---       newIORef (4, A.listArray (0, 3) elems')
---     algebrae
---       ∷ IORef
---           ( HM.HashMap
---             (StableName (IORef (Word, [f|a|])))
---             (Either [f|bx|] (SemigroupM d [f|bx|]))
---           )
---       <- liftn @n $ newIORef (HM.empty)
--- 
---     let recur p r@(Ref name ioref) = SemigroupA $ Compose do
---           liftn @(Succ n) do
---             (n, _) <- readIORef ioref
---             (sz, arr) <- readIORef topos
---             let sz':_ = dropWhile (<= n) $ iterate (*2) sz
---             arr' <- if sz' > sz
---               then do
---                 let elems = A.elems arr
---                 elems' <- replicateM (fromIntegral $ sz' - sz) do newIORef HM.empty
---                 let arr' = A.listArray (0, sz' - 1) $ elems ++ elems'
---                 writeIORef topos (sz', arr')
---                 return arr'
---               else
---                 return arr
---             modifyIORef' (arr' A.! n) (HM.insertWith (<>) r p)
--- 
---           return do
---             algebraeV <- liftn @(Succ n) do readIORef algebrae
---             case HM.lookup name algebraeV of
---               Just (Right algebra) -> do
---                 b <- algebra
---                 liftn @(Succ n) do writeIORef algebrae $ HM.insert name (Left b) algebraeV
---                 return b
---               Just (Left b) -> return b
---               Nothing -> error "Impossible"
--- 
---     let SemigroupA (Compose bef) = act
---     aft <- runReaderT bef recur
--- 
---     (sz, arr) <- liftn @n do readIORef topos
---     forM_ [sz - 1, sz - 2 .. 0] \i -> do
---       topo <- liftn @n do readIORef (arr A.! i)
---       forM_ (HM.toList topo) \(r@(Ref name ioref), p) -> do
---         (_, f) <- liftn @n do readIORef ioref
---         let SemigroupA (Compose bef) = algebra p r f
---         aft <- runReaderT bef recur
---         algebraeV <- liftn @n do readIORef algebrae
---         liftn @n do writeIORef algebrae (HM.insert name (Right aft) algebraeV)
--- 
---     runReaderT aft recur
--- 
--- data SemigroupRecFix
--- instance
---   ( Monad [fk|m|]
---   , [f|r|] ~ RefFix [fk|f|]
---   , [f|a|] ~ [fk|f|] [f|r|]
---   , Recur (K n SemigroupRec) (RecFixD d)
---   ) =>
---   Recur (K n SemigroupRecFix) d
---   where
---   recur algebra act =
---     recur @(K n SemigroupRec) @(RecFixD d)
---       (\p r fr -> algebra p (RefFix r) fr)
---       act
+runSemigroupA :: forall n p a xb m b.
+  (Monad m, LiftN n IO m)
+  => SemigroupA p a xb m b
+  -> (p -> Ref a -> a -> SemigroupA p a xb m xb)
+  -> m b
+runSemigroupA (SemigroupA (Compose bef)) algebra = do
+  topos ∷ IORef (SemigroupTopos p a) <- liftn @n do
+    elems' <- replicateM 4 do newIORef HM.empty
+    newIORef (4, A.listArray (0, 3) elems')
+  algebrae ∷ IORef (SemigroupAlgebrae p a xb m) <- liftn @n $ newIORef (HM.empty)
+
+  aft :: SemigroupM p a xb m b <- runReaderT bef SemigroupEnv{algebrae, topos}
+
+  (sz, arr) <- liftn @n do readIORef topos
+  forM_ [sz - 1, sz - 2 .. 0] \i -> do
+    topo <- liftn @n do readIORef (arr A.! i)
+    forM_ (HM.toList topo) \(r@(Ref name ioref), p) -> do
+      (_, f) <- liftn @n do readIORef ioref
+      let SemigroupA (Compose bef) = algebra p r f
+      aft <- runReaderT bef SemigroupEnv{algebrae, topos}
+      algebraeV <- liftn @n do readIORef algebrae
+      liftn @n do writeIORef algebrae (HM.insert name (Right aft) algebraeV)
+
+  runReaderT aft SemigroupEnv{algebrae, topos}
+
+semigroupRec :: forall n p a xb m.
+  ( Monad m
+  , Semigroup p
+  , LiftN n IO m
+  ) ⇒ p -> Ref a -> SemigroupA p a xb m xb
+semigroupRec p r@(Ref name ioref) = SemigroupA $ Compose do
+  SemigroupEnv{algebrae, topos} <- ask
+  liftn @(Succ n) do
+    (n, _) <- readIORef ioref
+    (sz, arr) <- readIORef topos
+    let sz':_ = dropWhile (<= n) $ iterate (*2) sz
+    arr' <- if sz' > sz
+      then do
+        let elems = A.elems arr
+        elems' <- replicateM (fromIntegral $ sz' - sz) do newIORef HM.empty
+        let arr' = A.listArray (0, sz' - 1) $ elems ++ elems'
+        writeIORef topos (sz', arr')
+        return arr'
+      else
+        return arr
+    modifyIORef' (arr' A.! n) (HM.insertWith (<>) r p)
+
+  return do
+    algebraeV <- liftn @(Succ n) do readIORef algebrae
+    case HM.lookup name algebraeV of
+      Just (Right algebra) -> do
+        b <- algebra
+        liftn @(Succ n) do writeIORef algebrae $ HM.insert name (Left b) algebraeV
+        return b
+      Just (Left b) -> return b
+      Nothing -> error "Impossible"
+
+runSemigroupAFix :: forall n p f xb m b.
+  (Monad m, LiftN n IO m)
+  => SemigroupA p (f (RefFix f)) xb m b
+  -> (p -> RefFix f -> f (RefFix f) -> SemigroupA p (f (RefFix f)) xb m xb)
+  -> m b
+runSemigroupAFix act algebra =
+  runSemigroupA @n act \p r fr -> algebra p (RefFix r) fr
+
+semigroupRecFix :: forall n p f xb m.
+  ( Monad m
+  , Semigroup p
+  , LiftN n IO m
+  ) => p -> RefFix f -> SemigroupA p (f (RefFix f)) xb m xb
+semigroupRecFix p (RefFix r) = semigroupRec @n p r
