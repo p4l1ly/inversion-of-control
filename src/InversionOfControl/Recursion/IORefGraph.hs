@@ -18,6 +18,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module InversionOfControl.Recursion.IORefGraph where
@@ -85,96 +86,108 @@ buildFree free = do
     r <- RefFix <$> buildTopo topo' (fmap snd fr')
     return (topo', r)
 
+type RecT p a mb xb = ReaderT
+  ( p -> Ref a -> a -> mb xb
+  , IORef (HM.HashMap (p, StableName (IORef (Word, a))) xb)
+  )
 
-type RecT p a bx = ReaderT (IORef (HM.HashMap (p, StableName (IORef (Word, a))) bx))
+type RunRecursionC m0 n0 = (Monad m0, LiftN n0 IO m0)
 
-runRecT :: forall n0 p a bx m0 x.
-  (Monad m0, LiftN n0 IO m0) => RecT p a bx m0 x -> m0 x
-runRecT act = do
+runRecursion :: forall n0 p a mb xb m0 x.
+  RunRecursionC m0 n0 => RecT p a mb xb m0 x -> (p -> Ref a -> a -> mb xb) -> m0 x
+runRecursion act algebra = do
   cacheRef <- liftn @n0 $ newIORef HM.empty
-  runReaderT act cacheRef
+  runReaderT act (algebra, cacheRef)
 
-data Rec n0
-instance
+runRecursion_Fix :: forall n0 p f mb xb m0 x.
+  (Monad m0, LiftN n0 IO m0)
+  => RecT p (f (RefFix f)) mb xb m0 x
+  -> (p -> RefFix f -> f (RefFix f) -> mb xb)
+  -> m0 x
+runRecursion_Fix act algebra =
+  runRecursion @n0 act \p r fr -> algebra p (RefFix r) fr
+
+type RecurC n0 nb mb xb p a =
   ( Monad mb
   , Monad (UnliftN (Succ nb) mb)
-  , LiftN nb (RecT p a xb (UnliftN (Succ nb) mb)) mb
+  , LiftN nb (RecT p a mb xb (UnliftN (Succ nb) mb)) mb
   , LiftN n0 IO (Unlift (UnliftN nb mb))
   , Eq p, Hashable p
-  ) => KFn (RecurE nb (Rec n0) p (Ref a) a (mb xb))
+  ) :: Constraint
+
+recur :: forall n0 nb mb xb p a.
+  RecurC n0 nb mb xb p a => p -> Ref a -> mb xb
+recur p r@(Ref name ioref) = do
+  (algebra, cacheRef) <- liftn @nb @(RecT p a mb xb (UnliftN (Succ nb) mb)) ask
+  cache <- liftIO' $ readIORef cacheRef
+  case HM.lookup (p, name) cache of
+    Just b -> return b
+    Nothing -> do
+      (_, f) <- liftIO' $ readIORef ioref
+      result <- algebra p r f
+      liftIO' $ modifyIORef' cacheRef (HM.insert (p, name) result)
+      return result
  where
-  kfn algebra p r@(Ref name ioref) = do
-    cacheRef <- liftn @nb @(RecT p a xb (UnliftN (Succ nb) mb)) ask
-    cache <- liftIO' $ readIORef cacheRef
-    case HM.lookup (p, name) cache of
-      Just b -> return b
-      Nothing -> do
-        (_, f) <- liftIO' $ readIORef ioref
-        result <- algebra p r f
-        liftIO' $ modifyIORef' cacheRef (HM.insert (p, name) result)
-        return result
-   where
-    liftIO' :: IO x -> mb x
-    liftIO' = liftn @nb @(RecT p a xb (UnliftN (Succ nb) mb)) . lift . liftn @n0
+  liftIO' :: IO x -> mb x
+  liftIO' = liftn @nb @(RecT p a mb xb (UnliftN (Succ nb) mb)) . lift . liftn @n0
 
-data RecFix n0
-instance
-  KFn (RecurE nb (Rec n0) p (Ref (f (RefFix f))) (f (RefFix f)) (mb xb))
-  => KFn (RecurE nb (RecFix n0) p (RefFix f) (f (RefFix f)) (mb xb))
-  where
-  kfn algebra p (RefFix r) =
-    kfn @(RecurE nb (Rec n0) p (Ref (f (RefFix f))) (f (RefFix f)) (mb xb))
-      (\p r fr -> algebra p (RefFix r) fr) p r
+recur_Fix :: forall n0 nb mb xb p f.
+  ( Monad mb
+  , Monad (UnliftN (Succ nb) mb)
+  , LiftN nb (RecT p (f (RefFix f)) mb xb (UnliftN (Succ nb) mb)) mb
+  , LiftN n0 IO (Unlift (UnliftN nb mb))
+  , Eq p, Hashable p
+  ) => p -> RefFix f -> mb xb
+recur_Fix p (RefFix r) = recur @n0 @nb p r
 
-type SemigroupTopos p a = (Word, A.Array Word (IORef (HM.HashMap (Ref a) p)))
-type SemigroupAlgebrae p a xb m = HM.HashMap
+type MergingTopos p a = (Word, A.Array Word (IORef (HM.HashMap (Ref a) p)))
+type MergingAlgebrae p a xb m = HM.HashMap
   (StableName (IORef (Word, a)))
-  (Either xb (SemigroupM p a xb m xb))
+  (Either xb (MergingM p a xb m xb))
 
-data SemigroupEnv p a xb m = SemigroupEnv
-  { algebrae :: IORef (SemigroupAlgebrae p a xb m)
-  , topos :: IORef (SemigroupTopos p a)
+data MergingEnv p a xb m = MergingEnv
+  { algebrae :: IORef (MergingAlgebrae p a xb m)
+  , topos :: IORef (MergingTopos p a)
   }
 
-type SemigroupM p a xb m = ReaderT (SemigroupEnv p a xb m) m
-newtype SemigroupA p a xb m b = SemigroupA
-  { unSemigroupA :: Compose (SemigroupM p a xb m) (SemigroupM p a xb m) b }
+type MergingM p a xb m = ReaderT (MergingEnv p a xb m) m
+newtype MergingA p a xb m c = MergingA (Compose (MergingM p a xb m) (MergingM p a xb m) c)
 
-deriving instance Functor m => Functor (SemigroupA p a xb m)
-deriving instance Applicative m => Applicative (SemigroupA p a xb m)
+deriving instance Functor m => Functor (MergingA p a xb m)
+deriving instance Applicative m => Applicative (MergingA p a xb m)
 
-runSemigroupA :: forall n p a xb m b.
+runMergingRecursion :: forall n p a xb m c.
   (Monad m, LiftN n IO m)
-  => SemigroupA p a xb m b
-  -> (p -> Ref a -> a -> SemigroupA p a xb m xb)
-  -> m b
-runSemigroupA (SemigroupA (Compose bef)) algebra = do
-  topos ∷ IORef (SemigroupTopos p a) <- liftn @n do
+  => MergingA p a xb m c
+  -> (p -> Ref a -> a -> MergingA p a xb m xb)
+  -> m c
+runMergingRecursion (MergingA (Compose bef)) algebra = do
+  topos ∷ IORef (MergingTopos p a) <- liftn @n do
     elems' <- replicateM 4 do newIORef HM.empty
     newIORef (4, A.listArray (0, 3) elems')
-  algebrae ∷ IORef (SemigroupAlgebrae p a xb m) <- liftn @n $ newIORef (HM.empty)
+  algebrae ∷ IORef (MergingAlgebrae p a xb m) <- liftn @n $ newIORef (HM.empty)
 
-  aft :: SemigroupM p a xb m b <- runReaderT bef SemigroupEnv{algebrae, topos}
+  aft :: MergingM p a xb m c <- runReaderT bef MergingEnv{algebrae, topos}
 
   (sz, arr) <- liftn @n do readIORef topos
   forM_ [sz - 1, sz - 2 .. 0] \i -> do
     topo <- liftn @n do readIORef (arr A.! i)
     forM_ (HM.toList topo) \(r@(Ref name ioref), p) -> do
       (_, f) <- liftn @n do readIORef ioref
-      let SemigroupA (Compose bef) = algebra p r f
-      aft <- runReaderT bef SemigroupEnv{algebrae, topos}
+      let MergingA (Compose bef) = algebra p r f
+      aft <- runReaderT bef MergingEnv{algebrae, topos}
       algebraeV <- liftn @n do readIORef algebrae
       liftn @n do writeIORef algebrae (HM.insert name (Right aft) algebraeV)
 
-  runReaderT aft SemigroupEnv{algebrae, topos}
+  runReaderT aft MergingEnv{algebrae, topos}
 
-semigroupRec :: forall n p a xb m.
+mergeAndRecur :: forall n p a xb m.
   ( Monad m
   , Semigroup p
   , LiftN n IO m
-  ) ⇒ p -> Ref a -> SemigroupA p a xb m xb
-semigroupRec p r@(Ref name ioref) = SemigroupA $ Compose do
-  SemigroupEnv{algebrae, topos} <- ask
+  ) ⇒ p -> Ref a -> MergingA p a xb m xb
+mergeAndRecur p r@(Ref name ioref) = MergingA $ Compose do
+  MergingEnv{algebrae, topos} <- ask
   liftn @(Succ n) do
     (n, _) <- readIORef ioref
     (sz, arr) <- readIORef topos
@@ -200,17 +213,17 @@ semigroupRec p r@(Ref name ioref) = SemigroupA $ Compose do
       Just (Left b) -> return b
       Nothing -> error "Impossible"
 
-runSemigroupAFix :: forall n p f xb m b.
+runMergingRecursion_Fix :: forall n p f xb m c.
   (Monad m, LiftN n IO m)
-  => SemigroupA p (f (RefFix f)) xb m b
-  -> (p -> RefFix f -> f (RefFix f) -> SemigroupA p (f (RefFix f)) xb m xb)
-  -> m b
-runSemigroupAFix act algebra =
-  runSemigroupA @n act \p r fr -> algebra p (RefFix r) fr
+  => MergingA p (f (RefFix f)) xb m c
+  -> (p -> RefFix f -> f (RefFix f) -> MergingA p (f (RefFix f)) xb m xb)
+  -> m c
+runMergingRecursion_Fix act algebra =
+  runMergingRecursion @n act \p r fr -> algebra p (RefFix r) fr
 
-semigroupRecFix :: forall n p f xb m.
+mergeAndRecur_Fix :: forall n p f xb m.
   ( Monad m
   , Semigroup p
   , LiftN n IO m
-  ) => p -> RefFix f -> SemigroupA p (f (RefFix f)) xb m xb
-semigroupRecFix p (RefFix r) = semigroupRec @n p r
+  ) => p -> RefFix f -> MergingA p (f (RefFix f)) xb m xb
+mergeAndRecur_Fix p (RefFix r) = mergeAndRecur @n p r

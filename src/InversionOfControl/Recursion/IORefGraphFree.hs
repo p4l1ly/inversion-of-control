@@ -27,50 +27,46 @@ import InversionOfControl.TypeDict
 import InversionOfControl.Recursion
 import InversionOfControl.Lift
 import InversionOfControl.LiftN
-import InversionOfControl.Recursion.IORefGraph
-import InversionOfControl.MonadFn
+import qualified InversionOfControl.Recursion.Free as F
+import qualified InversionOfControl.Recursion.IORefGraph as G
 import InversionOfControl.GMonadTrans
 import Control.Monad.Reader
+import Data.Hashable
 
-type FRef f = Free f (RefFix (Free f))
+newtype Ref f = Ref (Free f (G.Ref (Ref f)))
 
-data FRec n
-instance
-  ( Monad [fk|m|]
-  , [f|r|] ~ FRef [fk|f|]
-  , [f|a|] ~ [fk|f|] [f|r|]
-  , Recur (K n (RecFix n')) (FRecD d)
-  , [f|b|] ~ [fk|bm|] [f|bx|]
-  , [f|c|] ~ Kindy (ReaderT ([f|p|] -> Ref [f|r|] -> [f|b|]) [fk|m|])
-  , LiftN n' [fk|c|] [fk|bm|]
-  , Monad [fk|bm|]
-  ) => Recur (K n (FRec n')) d
-  where
-  recur algebra act =
-    recur @(K n (RecFix n')) @(FRecD d)
-      (\p r fr -> recFree p fr)
-      act
-    where
-      recFree p r@(Free a) = algebra p r a
-      recFree p r@(Pure rr) =
-        monadfnn
-          @( E
-              (K n' (GetFam "fixrec" (Follow (FixRecurD "fixrec" (FRecD d) Empty))))
-              ([f|p|], RefFix (Free [fk|f|]))
-              [f|bx|]
-              [fk|bm|]
-          )
-          (p, rr)
+type M0 nb mb = Unlift (Unlift (UnliftN nb mb))
+type M1 nb mb xb p f = F.RecT p f (G.Ref (Ref f)) (mb xb) (M0 nb mb)
+type M2 nb mb xb p f = G.RecT p (Ref f) mb xb (M1 nb mb xb p f)
 
-data FRecD d
-type instance Definition (FRecD d) =
-  Name "f" (Kindy (Free [fk|f|]))
-  :+: Name "r" (RefFix [fsk|f|])
-  :+: Name "a" ([fsk|f|] [fs|r|])
-  :+: Follow d
+runRecursion :: forall n0 nb mb xb p f c.
+  ( G.RunRecursionC (M1 nb mb xb p f) (Succ n0)
+  , G.RecurC (Succ n0) nb mb xb p (Ref f)
+  , Functor f
+  )
+  => M2 nb mb xb p f c
+  -> (p -> Ref f -> f (Ref f) -> (mb xb))
+  -> M0 nb mb c
+runRecursion act algebra = do
+  F.runRecursion
+    do G.runRecursion @(Succ n0) act \p gr r@(Ref free) -> do
+        -- For total code reuse, it could be implemented this way:
+        -- `F.recur @n0 @(Succ nb) p free`
+        -- But we want to support one specialty for better sharing - run algebra with
+        -- `Pure gr` instead of `Free free` passed as the reference parameter.
+        case free of
+          Free ffree -> algebra p (Ref (Pure gr)) (fmap Ref ffree)
+          Pure gr' -> G.recur @(Succ n0) @nb p gr'
+    do \p gr -> G.recur @(Succ n0) @nb p gr
+    do \p free ffree -> algebra p (Ref free) (fmap Ref ffree)
 
-
--- TODO There's a better way than ReaderT. One can pass its algebra as a parameter to rec every time
--- and we will do the right mechanism. This will resolve also the problem of this instance where we
--- would have to add another two stacks of ReaderT - one for internal operation and one for the
--- user.
+recur :: forall n0 nb mb xb p f a.
+  ( G.RecurC (Succ n0) nb mb xb p (Ref f)
+  , F.RecurC n0 (Succ nb) mb xb p f (G.Ref (Ref f))
+  ) => p -> Ref f -> mb xb
+recur p r@(Ref free) = case free of
+  Pure gr' -> G.recur @(Succ n0) @nb p gr'
+  -- We do the Pure/Free match twice. If we'd want to avoid this, we should additionally store the
+  -- base algebra itself. There's actually not much to reuse in Free recursion then, so we can
+  -- actually stop using it.
+  _ -> F.recur @n0 @(Succ nb) p free

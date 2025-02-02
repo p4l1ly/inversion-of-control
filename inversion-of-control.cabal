@@ -33,7 +33,8 @@ library
     InversionOfControl.Recursion.Fix
     InversionOfControl.Recursion.Free
     InversionOfControl.Recursion.IORefGraph
-    -- InversionOfControl.Recursion.IORefGraphFree
+    InversionOfControl.Recursion.IORefGraphFree
+    InversionOfControl.Recursion.IORefGraphFree'
     -- InversionOfControl.Recursion.ArrayDag
 
   build-depends:

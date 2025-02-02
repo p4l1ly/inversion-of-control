@@ -13,20 +13,50 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module InversionOfControl.Recursion.Free where
 
+import Control.Monad.Reader
 import Control.Monad.Free
 import InversionOfControl.Recursion
 import InversionOfControl.Lift
+import InversionOfControl.LiftN
 import InversionOfControl.TypeDict
 import InversionOfControl.KFn
+import Data.Kind
 
-data Rec
-instance
-  (Applicative bm) ⇒
-  KFn (RecurE n Rec p (Free f bx) (f (Free f bx)) (bm bx))
-  where
-  kfn algebra p r@(Free a) = algebra p r a
-  kfn algebra p r@(Pure bx) = pure bx
+-- data Rec
+-- instance
+--   (Applicative mb) ⇒
+--   KFn (RecurE n Rec p (Free f xb) (f (Free f xb)) (mb xb))
+--   where
+--   kfn algebra p r@(Free a) = algebra p r a
+--   kfn algebra p r@(Pure xb) = pure xb
+
+type RecT p f a b = ReaderT
+  ( p -> Free f a -> f (Free f a) -> b
+  , p -> a -> b
+  )
+
+runRecursion
+  :: RecT p f a b m0 c
+  -> (p -> a -> b)
+  -> (p -> Free f a -> f (Free f a) -> b)
+  -> m0 c
+runRecursion act goLeaf algebra = runReaderT act (algebra, goLeaf)
+
+type RecurC n0 nb mb xb p f a =
+  ( Monad mb
+  , Monad (UnliftN (Succ nb) mb)
+  , LiftN nb (RecT p f a (mb xb) (UnliftN (Succ nb) mb)) mb
+  ) :: Constraint
+
+recur :: forall n0 nb mb xb p f a.
+  RecurC n0 nb mb xb p f a => p -> Free f a -> mb xb
+recur p r = do
+  (algebra, goLeaf) <- liftn @nb ask
+  case r of
+    Free fr -> algebra p r fr
+    Pure a -> goLeaf p a
