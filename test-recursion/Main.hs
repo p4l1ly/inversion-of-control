@@ -427,8 +427,8 @@ main ∷ IO ()
 main = do
   -- Simple test
 
-  True <- RecFix.runRecursion
-    do unRecurMonad1 do kfn @(GoBool DSimple _) () do fix1_val False
+  True <- runRecursion @RecFix.Rec
+    do unRecurMonad1 do kfn @(GoBool DSimple _) () (fix1_val False)
     do \_ _ -> boolAlgebraSimple @DSimple
 
   -- -- Test the algebrae
