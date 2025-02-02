@@ -18,6 +18,7 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module InversionOfControl.Recursion.IORefGraphFree where
@@ -32,41 +33,47 @@ import qualified InversionOfControl.Recursion.IORefGraph as G
 import InversionOfControl.GMonadTrans
 import Control.Monad.Reader
 import Data.Hashable
+import Data.Kind
 
 newtype Ref f = Ref (Free f (G.Ref (Ref f)))
 
+type RecT p f b = ReaderT (p -> Ref f -> f (Ref f) -> b)
+
 type M0 nb mb = Unlift (Unlift (UnliftN nb mb))
-type M1 nb mb xb p f = F.RecT p f (G.Ref (Ref f)) (mb xb) (M0 nb mb)
+type M1 nb mb xb p f = RecT p f (mb xb) (M0 nb mb)
 type M2 nb mb xb p f = G.RecT p (Ref f) mb xb (M1 nb mb xb p f)
 
-runRecursion :: forall n0 nb mb xb p f c.
+type RunRecursionC n0 nb mb xb p f c =
   ( G.RunRecursionC (M1 nb mb xb p f) (Succ n0)
   , G.RecurC (Succ n0) nb mb xb p (Ref f)
   , Functor f
-  )
+  ) :: Constraint
+
+runRecursion :: forall n0 nb mb xb p f c.
+  RunRecursionC n0 nb mb xb p f c
   => M2 nb mb xb p f c
-  -> (p -> Ref f -> f (Ref f) -> (mb xb))
+  -> (p -> Ref f -> f (Ref f) -> mb xb)
   -> M0 nb mb c
 runRecursion act algebra = do
-  F.runRecursion
+  runReaderT
     do G.runRecursion @(Succ n0) act \p gr r@(Ref free) -> do
-        -- For total code reuse, it could be implemented this way:
-        -- `F.recur @n0 @(Succ nb) p free`
-        -- But we want to support one specialty for better sharing - run algebra with
-        -- `Pure gr` instead of `Free free` passed as the reference parameter.
         case free of
           Free ffree -> algebra p (Ref (Pure gr)) (fmap Ref ffree)
           Pure gr' -> G.recur @(Succ n0) @nb p gr'
-    do \p gr -> G.recur @(Succ n0) @nb p gr
-    do \p free ffree -> algebra p (Ref free) (fmap Ref ffree)
+    algebra
 
-recur :: forall n0 nb mb xb p f a.
-  ( G.RecurC (Succ n0) nb mb xb p (Ref f)
-  , F.RecurC n0 (Succ nb) mb xb p f (G.Ref (Ref f))
-  ) => p -> Ref f -> mb xb
+type RecurC n0 nb mb xb p f =
+  ( Monad mb
+  , Monad (M0 nb mb)
+  , LiftN (Succ nb) (M1 nb mb xb p f) mb
+  , G.RecurC (Succ n0) nb mb xb p (Ref f)
+  , Functor f
+  ) :: Constraint
+
+recur :: forall n0 nb mb xb p f.
+  RecurC n0 nb mb xb p f => p -> Ref f -> mb xb
 recur p r@(Ref free) = case free of
   Pure gr' -> G.recur @(Succ n0) @nb p gr'
-  -- We do the Pure/Free match twice. If we'd want to avoid this, we should additionally store the
-  -- base algebra itself. There's actually not much to reuse in Free recursion then, so we can
-  -- actually stop using it.
-  _ -> F.recur @n0 @(Succ nb) p free
+  Free ffree -> do
+    algebra <- liftn @(Succ nb) ask
+    algebra p (Ref free) (fmap Ref ffree)

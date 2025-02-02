@@ -28,7 +28,7 @@ import qualified Data.Array as A
 import qualified Data.HashMap.Strict as HM
 import Data.Semigroup
 import Data.Fix
-import InversionOfControl.Recursion
+import qualified InversionOfControl.Recursion as R
 import InversionOfControl.Lift
 import System.Mem.StableName
 import Data.IORef

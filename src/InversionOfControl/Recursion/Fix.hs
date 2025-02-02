@@ -13,6 +13,9 @@
 {-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
 
@@ -24,22 +27,43 @@ import InversionOfControl.TypeDict
 import InversionOfControl.KFn
 import InversionOfControl.Lift
 import InversionOfControl.LiftN
-import InversionOfControl.Recursion
+import InversionOfControl.GMonadTrans
+import qualified InversionOfControl.Recursion as R
+import Data.Kind
 
-data Rec
-instance KFn (RecurE n Rec p (Fix f) (f (Fix f)) b) where
-  kfn algebra p r@(Fix a) = algebra p r a
+newtype RecT p f mb xb m0 x =
+  RecT { unRecT :: ReaderT (p -> Fix f -> f (Fix f) -> mb xb) m0 x }
+  deriving newtype (Functor, Applicative, Monad)
 
-type RecT p f b = ReaderT (p -> Fix f -> f (Fix f) -> b)
+type instance Unlift (RecT p f mb xb m0) = m0
+instance MonadTrans (RecT p f mb xb) where
+  lift = RecT . lift
 
-runRecursion :: RecT p f b m0 c -> (p -> (Fix f) -> (f (Fix f)) -> b) -> m0 c
-runRecursion act algebra = runReaderT act algebra
+runRecursion
+  :: RecT p f mb xb m0 c
+  -> (p -> Fix f -> f (Fix f) -> mb xb)
+  -> m0 c
+runRecursion act algebra = runReaderT (unRecT act) algebra
 
-recur :: forall n0 nb mb xb p f.
+type RecurC nb mb xb p f =
   ( Monad mb
   , Monad (UnliftN (Succ nb) mb)
-  , LiftN nb (RecT p f (mb xb) (UnliftN (Succ nb) mb)) mb
-  ) => p -> Fix f -> mb xb
+  , LiftN nb (RecT p f mb xb (UnliftN (Succ nb) mb)) mb
+  ) :: Constraint
+
+recur :: forall nb mb xb p f a.
+  RecurC nb mb xb p f => p -> Fix f -> mb xb
 recur p r@(Fix fr) = do
-  algebra <- liftn @nb @(RecT p f (mb xb) (UnliftN (Succ nb) mb)) ask
+  algebra <- liftn @nb do RecT ask
   algebra p r fr
+
+data Rec
+type instance R.Algebra (K _ Rec) p (Fix f) (f (Fix f)) b =
+  p -> Fix f -> f (Fix f) -> b
+type instance R.MonadT (K _ Rec) p (Fix f) (f (Fix f)) (mb xb) m0 c = RecT p f mb xb m0 c
+
+instance R.Recursion (K nb Rec) p (Fix f) (f (Fix f)) (mb xb) m0 c where
+  runRecursion = runRecursion
+
+instance RecurC nb mb xb p f => KFn (R.RecE nb Rec p (Fix f) (mb xb)) where
+  kfn = recur @nb

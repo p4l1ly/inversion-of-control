@@ -27,14 +27,6 @@ import InversionOfControl.TypeDict
 import InversionOfControl.KFn
 import Data.Kind
 
--- data Rec
--- instance
---   (Applicative mb) ⇒
---   KFn (RecurE n Rec p (Free f xb) (f (Free f xb)) (mb xb))
---   where
---   kfn algebra p r@(Free a) = algebra p r a
---   kfn algebra p r@(Pure xb) = pure xb
-
 type RecT p f a b = ReaderT
   ( p -> Free f a -> f (Free f a) -> b
   , p -> a -> b
