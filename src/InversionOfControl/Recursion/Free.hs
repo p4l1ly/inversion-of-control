@@ -14,41 +14,61 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 
 module InversionOfControl.Recursion.Free where
 
 import Control.Monad.Reader
 import Control.Monad.Free
-import InversionOfControl.Recursion
+import qualified InversionOfControl.Recursion as R
 import InversionOfControl.Lift
 import InversionOfControl.LiftN
+import InversionOfControl.GMonadTrans
 import InversionOfControl.TypeDict
 import InversionOfControl.KFn
 import Data.Kind
 
-type RecT p f a b = ReaderT
-  ( p -> Free f a -> f (Free f a) -> b
-  , p -> a -> b
-  )
+newtype RecT p f a mb xb m0 x =
+  RecT { unRecT :: ReaderT (p -> Free f a -> f (Free f a) -> mb m0 xb, p -> a -> mb m0 xb) m0 x }
+  deriving newtype (Functor, Applicative, Monad)
+type instance Unlift (RecT p f a mb xb m0) = m0
+instance MonadTrans (RecT p f a mb xb) where
+  lift = RecT . lift
 
 runRecursion
-  :: RecT p f a b m0 c
-  -> (p -> a -> b)
-  -> (p -> Free f a -> f (Free f a) -> b)
+  :: RecT p f a mb xb m0 c
+  -> (p -> a -> mb m0 xb)
+  -> (p -> Free f a -> f (Free f a) -> mb m0 xb)
   -> m0 c
-runRecursion act goLeaf algebra = runReaderT act (algebra, goLeaf)
+runRecursion act goLeaf algebra = runReaderT (unRecT act) (algebra, goLeaf)
 
-type RecurC n0 nb mb xb p f a =
-  ( Monad mb
-  , Monad (UnliftN (Succ nb) mb)
-  , LiftN nb (RecT p f a (mb xb) (UnliftN (Succ nb) mb)) mb
+type RecurC nb mb m0 xb p f a =
+  ( Monad (mb m0)
+  , m0 ~ UnliftN (Succ nb) (mb m0)
+  , Monad m0
+  , LiftN nb (RecT p f a mb xb m0) (mb m0)
   ) :: Constraint
 
-recur :: forall n0 nb mb xb p f a.
-  RecurC n0 nb mb xb p f a => p -> Free f a -> mb xb
+recur :: forall nb mb m0 xb p f a.
+  RecurC nb mb m0 xb p f a => p -> Free f a -> mb m0 xb
 recur p r = do
-  (algebra, goLeaf) <- liftn @nb ask
+  (algebra, goLeaf) <- liftn @nb do RecT ask
   case r of
     Free fr -> algebra p r fr
     Pure a -> goLeaf p a
+
+data RecPure
+type instance R.Algebra (R.E RecPure p (Free f xb) (f (Free f xb)) mb xb) m0 =
+  p -> Free f xb -> f (Free f xb) -> mb m0 xb
+type instance R.MonadT (R.E RecPure p (Free f xb) (f (Free f xb)) mb xb) m0 = RecT p f xb mb xb m0
+
+instance
+  (r ~ Free f xb, a ~ f (Free f xb), Applicative (mb m0))
+  => R.Recursion (R.E RecPure p r a mb xb) m0
+ where
+  runRecursion act = runRecursion act (\_ -> pure)
+
+instance RecurC nb mb m0 xb p f xb => KFn (R.RecE nb RecPure p (Free f xb) mb m0 xb) where
+  kfn = recur @nb

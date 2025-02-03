@@ -28,7 +28,6 @@ import InversionOfControl.TypeDict
 import InversionOfControl.Recursion
 import InversionOfControl.Lift
 import InversionOfControl.LiftN
-import qualified InversionOfControl.Recursion.Free as F
 import qualified InversionOfControl.Recursion.IORefGraph as G
 import InversionOfControl.GMonadTrans
 import Control.Monad.Reader

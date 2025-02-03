@@ -34,7 +34,6 @@ import Data.Kind
 newtype RecT p f mb xb m0 x =
   RecT { unRecT :: ReaderT (p -> Fix f -> f (Fix f) -> mb m0 xb) m0 x }
   deriving newtype (Functor, Applicative, Monad)
-
 type instance Unlift (RecT p f mb xb m0) = m0
 instance MonadTrans (RecT p f mb xb) where
   lift = RecT . lift

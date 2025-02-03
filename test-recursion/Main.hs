@@ -207,38 +207,6 @@ type instance Definition DSimple =
   :+: Name "bool" (Fix (BoolFormula Int))
   :+: End
 
--- -- Basic recursion
--- 
--- type RecApp d m =
---   ( RecAppBase d m
---   , KFn (RecBool d m)
---   , KFn (RecInt d m)
---   ) :: Constraint
--- 
--- type RecBool d m = [e|CataE|recBool|] [f|bool|] (BoolFormula [f|int|] [f|bool|]) (m Bool)
--- type RecInt d m = [e|CataE|recInt|] [f|int|] (IntFormula [f|bool|] [f|int|]) (m Int)
--- 
--- data GoBool1 d
--- data GoInt1 d
--- 
--- instance (RecApp d m, bool ~ [f|bool|]) => KFn (E (K Zero (GoBool1 d)) (bool -> m Bool))
---   where kfn = recBool @d
--- 
--- instance (RecApp d m, int ~ [f|int|]) => KFn (E (K Zero (GoInt1 d)) (int -> m Int))
---   where kfn = recInt @d
--- 
--- data RecD d
--- type instance Definition (RecD d) =
---   Name "recBool" (GoBool1 d)
---   :+: Name "recurInt" (GoInt1 d)
---   :+: Follow d
--- 
--- recBool :: forall d m. RecApp d m => [f|bool|] -> m Bool
--- recBool = cata @(RecBool d m) (boolAlgebra @(RecD d))
--- 
--- recInt :: forall d m. RecApp d m => [f|int|] -> m Int
--- recInt = cata @(RecInt d m) (intAlgebra @(RecD d))
--- 
 -- -- Valuated var recursion
 -- 
 -- type VarT = ReaderT (Word -> Bool)
@@ -312,20 +280,23 @@ type instance Definition FixD =
 -- type instance Definition VarFixD =
 --   Name "bool" (Fix (Compose (BoolFormula Int) (Either Word)))
 --   :+: Follow FixD
--- 
--- data FreeD
--- type instance Definition FreeD =
---   Name "recBool" RecFree.Rec
---   :+: Name "bool" (Free (BoolFormula Int) Bool)
---   :+: Follow D0
--- 
--- data DagD
--- type instance Definition DagD =
---   Name "recBool" (RecDag.RecFix (Succ Zero))
---   :+: Name "bool" (RecDag.RefFix (BoolFormula Int))
---   :+: Name "lift" ()
---   :+: Follow D0
--- 
+
+data FreeD
+type instance Definition FreeD =
+  Name "lift" ()
+  :+: Name "recBool" RecFree.RecPure
+  :+: Name "bool" (Free (BoolFormula Int) Bool)
+  :+: Name "lift" ()
+  :+: Follow D0
+
+data DagD
+type instance Definition DagD =
+  Name "lift" ()
+  :+: Name "recBool" (RecDag.RecFix (Succ Zero))
+  :+: Name "bool" (RecDag.RefFix (BoolFormula Int))
+  :+: Name "lift" ()
+  :+: Follow D0
+
 -- data VarDagD
 -- type instance Definition VarDagD =
 --   Name "bool" (RecDag.RefFix (Compose (BoolFormula Int) (Either Word)))
@@ -481,15 +452,10 @@ main = do
   --   True <- runReaderT (recBoolVar @(LiftUp VarFixD) (Right fix1_var)) (\0 -> False)
   --   return ()
 
-  -- -- Test recursion of Free
+  -- Test recursion of Free
 
-  -- 2 <- runCIO do
-  --   False <- recBool @FreeD $ fmap (\0 -> True) free1
-  --   return ()
-
-  -- 2 <- runCIO do
-  --   True <- recBool @FreeD $ fmap (\0 -> False) free1
-  --   return ()
+  testSingle @FreeD "free1_true" False 2 do fmap (\0 -> True) free1
+  testSingle @FreeD "free1_false" True 2 do fmap (\0 -> False) free1
 
   -- -- Test recursion of IORefGraph
 
