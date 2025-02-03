@@ -425,14 +425,16 @@ iorefg2 val1 val2 = do
 --   :+: Name "lift" ()
 --   :+: Follow D0
 
+type TestSingleCata d t =
+  R.E1 [f|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t Bool
+
 testSingle :: forall d mb t.
-  ( mb ~ R.RecurMonad1 t Bool CIO
-  , RecAppAlg d mb
-  , R.Cata1C [f|recBool|] [f|bool|] (BoolFormula [f|int|] [f|bool|]) t Bool CIO Bool
+  ( RecAppAlg d (R.RecurMonad1 t Bool CIO)
+  , R.BasicRecursion1C (TestSingleCata d t) CIO
   ) => String -> Bool -> Int -> [f|bool|] -> IO ()
 testSingle tag wantedResult wantedCount r = do
   count <- runCIO do
-    result <- R.runRecursion @[f|recBool|] @() @[f|bool|] @(BoolFormula [f|int|] [f|bool|]) @mb @Bool
+    result <- R.runRecursion @(TestSingleCata d t)
       do R.unRecurMonad1 do R.cata @(GoBool d _) r
       do \_ _ -> boolAlgebra @d
 
@@ -450,7 +452,7 @@ main = do
     do R.unRecurMonad1 do RecFix.recur @(Succ Zero) () (fix1_val False)
     do \_ _ -> boolAlgebraSimple @DSimple
 
-  True <- R.runRecursion @RecFix.Rec
+  True <- R.runRecursion @(R.E RecFix.Rec _ _ _ _ _)
     do R.unRecurMonad1 do kfn @(GoBool DSimple _) () (fix1_val False)
     do \_ _ -> boolAlgebraSimple @DSimple
 
