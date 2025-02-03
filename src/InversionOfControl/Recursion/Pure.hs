@@ -22,26 +22,11 @@ import InversionOfControl.TypeDict
 import InversionOfControl.KFn
 import InversionOfControl.Lift
 import InversionOfControl.LiftN
-import InversionOfControl.Recursion
+import qualified InversionOfControl.Recursion as R
 import Control.Monad.Reader
 import Data.Kind
 
-type RecT p a b = ReaderT (p -> a -> b)
+data Rec
 
-runRecursion
-  :: RecT p a b m0 c
-  -> (p -> a -> b)
-  -> m0 c
-runRecursion act algebra = runReaderT act algebra
-
--- type RecurC n0 nb mb xb p f =
---   ( Monad mb
---   , Monad (UnliftN (Succ nb) mb)
---   , LiftN nb (RecT p f (mb xb) (UnliftN (Succ nb) mb)) mb
---   ) :: Constraint
-
--- recur :: forall n0 nb mb xb p f a.
---   RecurC n0 nb mb xb p f => p -> Fix f -> mb xb
--- recur p r@(Fix fr) = do
---   algebra <- liftn @nb ask
---   algebra p r fr
+instance Applicative mb => KFn (R.RecE nb Rec p xb mb xb) where
+  kfn _ = pure

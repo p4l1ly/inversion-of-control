@@ -37,13 +37,14 @@ import qualified InversionOfControl.Recursion.IORefGraph as RecDag
 import qualified InversionOfControl.Recursion.Free as RecFree
 import qualified InversionOfControl.Recursion.Fix as RecFix
 import qualified InversionOfControl.Recursion.Pure as RecPure
-import InversionOfControl.Recursion
+import qualified InversionOfControl.Recursion as R
 import InversionOfControl.Lift
 import InversionOfControl.TypeDict
 import InversionOfControl.KFn
 import InversionOfControl.GMonadTrans
 import Data.Kind
 import Data.Functor.Classes
+import Control.Monad
 
 data BoolFormula int bool =
   And bool bool
@@ -134,61 +135,61 @@ runCIO act = do
   runReaderT act ref
   readIORef ref
 
--- type RunCIO d m a = E [k|runCIO|] (CIO a -> m a)
-type GoBool d m = E [k|recurBool|] (() -> [f|bool|] -> m Bool)
--- type GoInt d m = E [k|recurInt|] ([f|int|] -> m Int)
+type RunCIO d m a = E [k|runCIO|] (CIO a -> m a)
+type GoBool d m = E [k|recBool|] (() -> [f|bool|] -> m Bool)
+type GoInt d m = E [k|recurInt|] (() -> [f|int|] -> m Int)
 
--- type RecAppBase d m =
---   ( Monad m
---   , forall a. KFn (RunCIO d m a)
---   , Show [f|bool|]
---   , Show [f|int|]
---   ) :: Constraint
--- 
--- type RecAppAlg d m =
---   ( RecAppBase d m
---   , KFn (GoBool d m)
---   , KFn (GoInt d m)
---   ) :: Constraint
--- 
--- intAlgebra :: forall d m. RecAppAlg d m => IntFormula [f|bool|] [f|int|] -> m Int
--- intAlgebra = \case
---   Count xs -> do
---     kfn @(RunCIO d _ _) incCounter
---     args <- mapM (kfn @(GoBool d m)) xs
---     let result = sum $ map fromEnum args
---     kfn @(RunCIO d _ _) $ lift do print ("[]", result, args, xs)
---     return result
---   Plus x y -> do
---     args <- (,) <$> kfn @(GoInt d m) x <*> kfn @(GoInt d m) y
---     let result = uncurry (+) args
---     kfn @(RunCIO d _ _) $ lift do print ("++", result, args, x, y)
---     return result
---   IntLit i -> do
---     kfn @(RunCIO d _ _) $ lift do print ("II", i)
---     return i
--- 
--- boolAlgebra :: forall d m. RecAppAlg d m => BoolFormula [f|int|] [f|bool|] -> m Bool
--- boolAlgebra = \case
---   And x y -> do
---     args <- (,) <$> kfn @(GoBool d m) x <*> kfn @(GoBool d m) y
---     let result = uncurry (&&) args
---     kfn @(RunCIO d _ _) $ lift do print ("&&", result, args, x, y)
---     return result
---   Not x -> do
---     args <- kfn @(GoBool d m) x
---     let result = not args
---     kfn @(RunCIO d _ _) $ lift do print ("!!", result, args, x)
---     return result
---   Leq x y -> do
---     kfn @(RunCIO d _ _) incCounter
---     args <- (,) <$> kfn @(GoInt d m) x <*> kfn @(GoInt d m) y
---     let result = uncurry (<=) args
---     kfn @(RunCIO d _ _) $ lift do print ("<=", result, args, x, y)
---     return result
---   BoolLit b -> do
---     kfn @(RunCIO d _ _) $ lift do print ("BB", b)
---     return b
+type RecAppBase d m =
+  ( Monad m
+  , forall a. KFn (RunCIO d m a)
+  , Show [f|bool|]
+  , Show [f|int|]
+  ) :: Constraint
+
+type RecAppAlg d m =
+  ( RecAppBase d m
+  , KFn (GoBool d m)
+  , KFn (GoInt d m)
+  ) :: Constraint
+
+intAlgebra :: forall d m. RecAppAlg d m => IntFormula [f|bool|] [f|int|] -> m Int
+intAlgebra = \case
+  Count xs -> do
+    kfn @(RunCIO d _ _) incCounter
+    args <- mapM (R.cata @(GoBool d m)) xs
+    let result = sum $ map fromEnum args
+    kfn @(RunCIO d _ _) $ lift do print ("[]", result, args, xs)
+    return result
+  Plus x y -> do
+    args <- (,) <$> R.cata @(GoInt d m) x <*> R.cata @(GoInt d m) y
+    let result = uncurry (+) args
+    kfn @(RunCIO d _ _) $ lift do print ("++", result, args, x, y)
+    return result
+  IntLit i -> do
+    kfn @(RunCIO d _ _) $ lift do print ("II", i)
+    return i
+
+boolAlgebra :: forall d m. RecAppAlg d m => BoolFormula [f|int|] [f|bool|] -> m Bool
+boolAlgebra = \case
+  And x y -> do
+    args <- (,) <$> R.cata @(GoBool d m) x <*> R.cata @(GoBool d m) y
+    let result = uncurry (&&) args
+    kfn @(RunCIO d _ _) $ lift do print ("&&", result, args, x, y)
+    return result
+  Not x -> do
+    args <- R.cata @(GoBool d m) x
+    let result = not args
+    kfn @(RunCIO d _ _) $ lift do print ("!!", result, args, x)
+    return result
+  Leq x y -> do
+    kfn @(RunCIO d _ _) incCounter
+    args <- (,) <$> R.cata @(GoInt d m) x <*> R.cata @(GoInt d m) y
+    let result = uncurry (<=) args
+    kfn @(RunCIO d _ _) $ lift do print ("<=", result, args, x, y)
+    return result
+  BoolLit b -> do
+    kfn @(RunCIO d _ _) $ lift do print ("BB", b)
+    return b
 
 boolAlgebraSimple :: forall d m.
   (Monad m, KFn (GoBool d m)) =>
@@ -202,7 +203,7 @@ boolAlgebraSimple = \case
 data DSimple
 type instance Definition DSimple =
   Name "lift" ()
-  :+: Name "recurBool" RecFix.Rec
+  :+: Name "recBool" RecFix.Rec
   :+: Name "bool" (Fix (BoolFormula Int))
   :+: End
 
@@ -228,7 +229,7 @@ type instance Definition DSimple =
 -- 
 -- data RecD d
 -- type instance Definition (RecD d) =
---   Name "recurBool" (GoBool1 d)
+--   Name "recBool" (GoBool1 d)
 --   :+: Name "recurInt" (GoInt1 d)
 --   :+: Follow d
 -- 
@@ -264,6 +265,7 @@ type instance Definition DSimple =
 -- 
 -- recBoolVar :: forall d m. RecAppVar d m => Either Word [f|bool|] -> VarT m Bool
 -- recBoolVar = \case
+--
 --   Left x -> ($ x) <$> ask
 --   Right r -> cata @(RecBoolVar d m) (boolAlgebra @(VarD d) . getCompose) r
 -- 
@@ -273,7 +275,7 @@ type instance Definition DSimple =
 -- data VarD d
 -- type instance Definition (VarD d) =
 --   Name "bool" (Either Word [f|bool|])
---   :+: Name "recurBool" (GoBool2 d)
+--   :+: Name "recBool" (GoBool2 d)
 --   :+: Name "recurInt" (GoInt2 d)
 --   :+: Follow d
 -- 
@@ -288,24 +290,24 @@ type instance Definition DSimple =
 --   kfn algebra p er = case er of
 --     Left x -> ($ x) <$> ask
 --     Right r -> kfn @(E key (Recur p r a (ReaderT (v -> b) m b))) algebra p r
--- 
--- data D0
--- type instance Definition D0 =
---   Name "runCIO" Lifter
---   :+: Name "recBool" RecPure.Rec
---   :+: Name "recInt" RecPure.Rec
---   :+: Name "recurBool" RecPure.Go
---   :+: Name "recurInt" RecPure.Go
---   :+: Name "bool" Bool
---   :+: Name "int" Int
---   :+: End
--- 
--- data FixD
--- type instance Definition FixD =
---   Name "recBool" RecFix.Rec
---   :+: Name "bool" (Fix (BoolFormula Int))
---   :+: Follow D0
--- 
+
+data D0
+type instance Definition D0 =
+  Name "runCIO" Lifter
+  :+: Name "recBool" RecPure.Rec
+  :+: Name "recurInt" RecPure.Rec
+  :+: Name "bool" Bool
+  :+: Name "int" Int
+  :+: End
+
+data FixD
+type instance Definition FixD =
+  Name "lift" ()
+  :+: Name "recBool" RecFix.Rec
+  :+: Name "bool" (Fix (BoolFormula Int))
+  :+: Name "lift" ()
+  :+: Follow D0
+
 -- data VarFixD
 -- type instance Definition VarFixD =
 --   Name "bool" (Fix (Compose (BoolFormula Int) (Either Word)))
@@ -423,35 +425,51 @@ iorefg2 val1 val2 = do
 --   :+: Name "lift" ()
 --   :+: Follow D0
 
+testSingle :: forall d mb t.
+  ( mb ~ R.RecurMonad1 t Bool CIO
+  , RecAppAlg d mb
+  , R.Cata1C [f|recBool|] [f|bool|] (BoolFormula [f|int|] [f|bool|]) t Bool CIO Bool
+  ) => String -> Bool -> Int -> [f|bool|] -> IO ()
+testSingle tag wantedResult wantedCount r = do
+  count <- runCIO do
+    result <- R.runRecursion @[f|recBool|] @() @[f|bool|] @(BoolFormula [f|int|] [f|bool|]) @mb @Bool
+      do R.unRecurMonad1 do R.cata @(GoBool d _) r
+      do \_ _ -> boolAlgebra @d
+
+    when (wantedResult /= result) do
+      error do "testSingle result " ++ tag ++ " " ++ show wantedResult ++ " != " ++ show result
+
+  when (wantedCount /= count) do
+    error do "testSingle count " ++ tag ++ " " ++ show wantedCount ++ " != " ++ show count
+
 main ∷ IO ()
 main = do
   -- Simple test
 
-  True <- runRecursion @RecFix.Rec
-    do unRecurMonad1 do kfn @(GoBool DSimple _) () (fix1_val False)
+  True <- RecFix.runRecursion
+    do R.unRecurMonad1 do RecFix.recur @(Succ Zero) () (fix1_val False)
     do \_ _ -> boolAlgebraSimple @DSimple
 
-  -- -- Test the algebrae
+  True <- R.runRecursion @RecFix.Rec
+    do R.unRecurMonad1 do kfn @(GoBool DSimple _) () (fix1_val False)
+    do \_ _ -> boolAlgebraSimple @DSimple
 
-  -- 2 <- runCIO do
-  --   False <- boolAlgebra @D0 $ And True False 
-  --   True <- boolAlgebra @D0 $ Not False
-  --   True <- boolAlgebra @D0 $ Leq 1 2
-  --   False <- boolAlgebra @D0 $ BoolLit False
-  --   3 <- intAlgebra @D0 $ Count [False, True, True, False, True]
-  --   5 <- intAlgebra @D0 $ Plus 3 2
-  --   9 <- intAlgebra @D0 $ IntLit 9
-  --   return ()
+  -- Test the algebrae
+
+  2 <- runCIO do
+    False <- boolAlgebra @D0 $ And True False 
+    True <- boolAlgebra @D0 $ Not False
+    True <- boolAlgebra @D0 $ Leq 1 2
+    False <- boolAlgebra @D0 $ BoolLit False
+    3 <- intAlgebra @D0 $ Count [False, True, True, False, True]
+    5 <- intAlgebra @D0 $ Plus 3 2
+    9 <- intAlgebra @D0 $ IntLit 9
+    return ()
 
   -- Test recursion of Fix
 
-  -- 2 <- runCIO do
-  --   False <- recBool @FixD $ fix1_val True
-  --   return ()
-
-  -- 2 <- runCIO do
-  --   True <- recBool @FixD $ fix1_val False
-  --   return ()
+  testSingle @FixD "fix1_val_true" False 2 (fix1_val True)
+  testSingle @FixD "fix1_val_false" True 2 (fix1_val False)
 
   -- 2 <- runCIO do
   --   False <- runReaderT (recBoolVar @(LiftUp VarFixD) (Right fix1_var)) (\0 -> True)

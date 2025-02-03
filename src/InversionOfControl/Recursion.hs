@@ -12,6 +12,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module InversionOfControl.Recursion where
@@ -22,15 +23,30 @@ import InversionOfControl.Lift
 import InversionOfControl.GMonadTrans
 import Data.Kind
 
-type family Algebra k p r a b
-type family MonadT k p r a b (m0 :: Type -> Type) c :: Type
+type family Algebra k p r a (mb :: Type -> Type) xb
+type family MonadT k p r a (mb :: Type -> Type) xb (m0 :: Type -> Type) c :: Type
 
-class Recursion k p r a b m0 c where
-  runRecursion :: MonadT k p r a b m0 c -> Algebra k p r a b -> m0 c
+class Recursion k p r a mb xb m0 c where
+  runRecursion :: MonadT k p r a mb xb m0 c -> Algebra k p r a mb xb -> m0 c
 
-type RecE nb k p r b = E (K nb k) (p -> r -> b)
+type BasicRecursionC k p r a mb xb m0 c =
+  ( Recursion k p r a mb xb m0 c
+  , Algebra k p r a mb xb ~ (p -> r -> a -> mb xb)
+  ) :: Constraint
+type CataC k r a mb xb m0 c = BasicRecursionC k () r a mb xb m0 c
+
+type RecE nb k p r mb xb = E (K nb k) (p -> r -> mb xb)
+
+cata :: forall e r b. (KFn e, EKfn e ~ (() -> r -> b)) => r -> b
+cata = kfn @e ()
 
 -- RecurMonad1 ------------------------------------------------------------------------------------
+
+type BasicRecursion1C k p r a t xb m0 c =
+  ( BasicRecursionC k p r a (RecurMonad1 t xb m0) xb m0 c
+  , MonadT k p r a (RecurMonad1 t xb m0) xb m0 c ~ t (RecurMonad1 t xb m0) xb m0 c
+  ) :: Constraint
+type Cata1C k r a t xb m0 c = BasicRecursion1C k () r a t xb m0 c
 
 newtype RecurMonad1
   (t :: (Type -> Type) -> Type -> (Type -> Type) -> Type -> Type)

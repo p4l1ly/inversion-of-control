@@ -58,11 +58,11 @@ recur p r@(Fix fr) = do
   algebra p r fr
 
 data Rec
-type instance R.Algebra Rec p (Fix f) (f (Fix f)) b = p -> Fix f -> f (Fix f) -> b
-type instance R.MonadT Rec p (Fix f) (f (Fix f)) (mb xb) m0 c = RecT p f mb xb m0 c
+type instance R.Algebra Rec p (Fix f) (f (Fix f)) mb xb = p -> Fix f -> f (Fix f) -> mb xb
+type instance R.MonadT Rec p (Fix f) (f (Fix f)) mb xb m0 c = RecT p f mb xb m0 c
 
-instance (r ~ Fix f, a ~ f (Fix f), b ~ mb xb) => R.Recursion Rec p r a b m0 c where
+instance (r ~ Fix f, a ~ f (Fix f)) => R.Recursion Rec p r a mb xb m0 c where
   runRecursion = runRecursion
 
-instance RecurC nb mb xb p f => KFn (R.RecE nb Rec p (Fix f) (mb xb)) where
+instance RecurC nb mb xb p f => KFn (R.RecE nb Rec p (Fix f) mb xb) where
   kfn = recur @nb
