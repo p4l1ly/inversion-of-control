@@ -86,39 +86,47 @@ buildFree free = do
     r <- RefFix <$> buildTopo topo' (fmap snd fr')
     return (topo', r)
 
-type RecT p a mb xb = ReaderT
-  ( p -> Ref a -> a -> mb xb
-  , IORef (HM.HashMap (p, StableName (IORef (Word, a))) xb)
-  )
+newtype RecT p a mb xb m0 x = RecT
+  { unRecT :: ReaderT
+      ( p -> Ref a -> a -> mb m0 xb
+      , IORef (HM.HashMap (p, StableName (IORef (Word, a))) xb)
+      )
+      m0 x
+  }
+  deriving newtype (Functor, Applicative, Monad)
+type instance Unlift (RecT p a mb xb m0) = m0
+instance MonadTrans (RecT p a mb xb) where
+  lift = RecT . lift
 
 type RunRecursionC m0 n0 = (Monad m0, LiftN n0 IO m0)
 
 runRecursion :: forall n0 p a mb xb m0 x.
-  RunRecursionC m0 n0 => RecT p a mb xb m0 x -> (p -> Ref a -> a -> mb xb) -> m0 x
+  RunRecursionC m0 n0 => RecT p a mb xb m0 x -> (p -> Ref a -> a -> mb m0 xb) -> m0 x
 runRecursion act algebra = do
-  cacheRef <- liftn @n0 $ newIORef HM.empty
-  runReaderT act (algebra, cacheRef)
+  cacheRef <- liftn @n0 do newIORef HM.empty
+  runReaderT (unRecT act) (algebra, cacheRef)
 
 runRecursion_Fix :: forall n0 p f mb xb m0 x.
-  (Monad m0, LiftN n0 IO m0)
+  RunRecursionC m0 n0
   => RecT p (f (RefFix f)) mb xb m0 x
-  -> (p -> RefFix f -> f (RefFix f) -> mb xb)
+  -> (p -> RefFix f -> f (RefFix f) -> mb m0 xb)
   -> m0 x
 runRecursion_Fix act algebra =
   runRecursion @n0 act \p r fr -> algebra p (RefFix r) fr
 
-type RecurC n0 nb mb xb p a =
-  ( Monad mb
-  , Monad (UnliftN (Succ nb) mb)
-  , LiftN nb (RecT p a mb xb (UnliftN (Succ nb) mb)) mb
-  , LiftN n0 IO (Unlift (UnliftN nb mb))
+type RecurC n0 nb mb m0 xb p a =
+  ( Monad (mb m0)
+  , m0 ~ UnliftN (Succ nb) (mb m0)
+  , Monad m0
+  , LiftN nb (RecT p a mb xb m0) (mb m0)
+  , LiftN n0 IO m0
   , Eq p, Hashable p
   ) :: Constraint
 
-recur :: forall n0 nb mb xb p a.
-  RecurC n0 nb mb xb p a => p -> Ref a -> mb xb
+recur :: forall n0 nb mb m0 xb p a.
+  RecurC n0 nb mb m0 xb p a => p -> Ref a -> mb m0 xb
 recur p r@(Ref name ioref) = do
-  (algebra, cacheRef) <- liftn @nb @(RecT p a mb xb (UnliftN (Succ nb) mb)) ask
+  (algebra, cacheRef) <- liftn @nb @(RecT p a mb xb m0) do RecT ask
   cache <- liftIO' $ readIORef cacheRef
   case HM.lookup (p, name) cache of
     Just b -> return b
@@ -128,17 +136,31 @@ recur p r@(Ref name ioref) = do
       liftIO' $ modifyIORef' cacheRef (HM.insert (p, name) result)
       return result
  where
-  liftIO' :: IO x -> mb x
-  liftIO' = liftn @nb @(RecT p a mb xb (UnliftN (Succ nb) mb)) . lift . liftn @n0
+  liftIO' :: IO x -> mb m0 x
+  liftIO' = liftn @nb @(RecT p a mb xb m0) . lift . liftn @n0
 
-recur_Fix :: forall n0 nb mb xb p f.
-  ( Monad mb
-  , Monad (UnliftN (Succ nb) mb)
-  , LiftN nb (RecT p (f (RefFix f)) mb xb (UnliftN (Succ nb) mb)) mb
-  , LiftN n0 IO (Unlift (UnliftN nb mb))
-  , Eq p, Hashable p
-  ) => p -> RefFix f -> mb xb
+recur_Fix :: forall n0 nb mb m0 xb p f.
+  RecurC n0 nb mb m0 xb p (f (RefFix f)) => p -> RefFix f -> mb m0 xb
 recur_Fix p (RefFix r) = recur @n0 @nb p r
+
+data RecFix n0
+type instance R.Algebra (R.E (RecFix n0) p (RefFix f) (f (RefFix f)) mb xb) m0 =
+  p -> RefFix f -> f (RefFix f) -> mb m0 xb
+type instance R.MonadT (R.E (RecFix n0) p (RefFix f) (f (RefFix f)) mb xb) m0 =
+  RecT p (f (RefFix f)) mb xb m0
+
+instance
+  (r ~ RefFix f, a ~ f (RefFix f), RunRecursionC m0 n0)
+  => R.Recursion (R.E (RecFix n0) p r a mb xb) m0
+ where
+  runRecursion = runRecursion_Fix @n0
+
+instance
+  RecurC n0 nb mb m0 xb p (f (RefFix f))
+  => KFn (R.RecE nb (RecFix n0) p (RefFix f) mb m0 xb)
+ where
+  kfn = recur_Fix @n0 @nb
+
 
 type MergingTopos p a = (Word, A.Array Word (IORef (HM.HashMap (Ref a) p)))
 type MergingAlgebrae p a xb m = HM.HashMap

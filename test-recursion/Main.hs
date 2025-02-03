@@ -441,8 +441,8 @@ main = do
 
   -- Test recursion of Fix
 
-  testSingle @FixD "fix1_val_true" False 2 (fix1_val True)
-  testSingle @FixD "fix1_val_false" True 2 (fix1_val False)
+  testSingle @FixD "fix1_true" False 2 (fix1_val True)
+  testSingle @FixD "fix1_false" True 2 (fix1_val False)
 
   -- 2 <- runCIO do
   --   False <- runReaderT (recBoolVar @(LiftUp VarFixD) (Right fix1_var)) (\0 -> True)
@@ -457,19 +457,13 @@ main = do
   testSingle @FreeD "free1_true" False 2 do fmap (\0 -> True) free1
   testSingle @FreeD "free1_false" True 2 do fmap (\0 -> False) free1
 
-  -- -- Test recursion of IORefGraph
+  -- Test recursion of IORefGraph
 
-  -- iorefg1_True <- iorefg1_val True
-  -- 1 <- runCIO do
-  --   RecDag.runRecT @(Succ Zero) do
-  --     False <- recBool @DagD iorefg1_True
-  --     return ()
+  iorefg1_True <- iorefg1_val True
+  testSingle @DagD "iorefg1_True" False 1 iorefg1_True
 
-  -- iorefg1_False <- iorefg1_val False
-  -- 1 <- runCIO do
-  --   RecDag.runRecT @(Succ Zero) do
-  --     True <- recBool @DagD iorefg1_False
-  --     return ()
+  iorefg1_False <- iorefg1_val False
+  testSingle @DagD "iorefg1_False" True 1 iorefg1_False
 
   -- iorefg1_var' <- iorefg1_var
   -- 1 <- runCIO do
