@@ -50,9 +50,12 @@ type TType = TMB -> Type -> (Type -> Type) -> Type -> Type
 newtype RecurMonad1 (t :: TType) xb (m0 :: Type -> Type) x
  = RecurMonad1 { unRecurMonad1 :: t (RecurMonad1 t xb) xb m0 x }
 
-deriving newtype instance Functor (t (RecurMonad1 t xb) xb m0) => Functor (RecurMonad1 t xb m0)
-deriving newtype instance Applicative (t (RecurMonad1 t xb) xb m0) => Applicative (RecurMonad1 t xb m0)
-deriving newtype instance Monad (t (RecurMonad1 t xb) xb m0) => Monad (RecurMonad1 t xb m0)
+deriving newtype instance
+  Functor (t (RecurMonad1 t xb) xb m0) => Functor (RecurMonad1 t xb m0)
+deriving newtype instance
+  Applicative (t (RecurMonad1 t xb) xb m0) => Applicative (RecurMonad1 t xb m0)
+deriving newtype instance
+  Monad (t (RecurMonad1 t xb) xb m0) => Monad (RecurMonad1 t xb m0)
 
 type instance Unlift (RecurMonad1 t xb m0) = t (RecurMonad1 t xb) xb m0
 instance {-# OVERLAPS #-}
@@ -82,19 +85,16 @@ newtype RecurMonad2
       t2 (RecurMonad2 t2 xb2 t1 xb1) xb2 (t1 (RecurMonad2 t2 xb2 t1 xb1) xb1 m0) x
   }
 
-deriving newtype instance
-  Functor (t2 (RecurMonad2 t2 xb2 t1 xb1) xb2 (t1 (RecurMonad2 t2 xb2 t1 xb1) xb1 m0))
-  => Functor (RecurMonad2 t2 xb2 t1 xb1 m0)
-deriving newtype instance
-  Applicative (t2 (RecurMonad2 t2 xb2 t1 xb1) xb2 (t1 (RecurMonad2 t2 xb2 t1 xb1) xb1 m0))
-  => Applicative (RecurMonad2 t2 xb2 t1 xb1 m0)
-deriving newtype instance
-  Monad (t2 (RecurMonad2 t2 xb2 t1 xb1) xb2 (t1 (RecurMonad2 t2 xb2 t1 xb1) xb1 m0))
-  => Monad (RecurMonad2 t2 xb2 t1 xb1 m0)
-
-type instance Unlift (RecurMonad2 t2 xb2 t1 xb1 m0) =
+type RecurMonad2Body t2 xb2 t1 xb1 m0 =
   t2 (RecurMonad2 t2 xb2 t1 xb1) xb2 (t1 (RecurMonad2 t2 xb2 t1 xb1) xb1 m0)
+deriving newtype instance
+  Functor (RecurMonad2Body t2 xb2 t1 xb1 m0) => Functor (RecurMonad2 t2 xb2 t1 xb1 m0)
+deriving newtype instance
+  Applicative (RecurMonad2Body t2 xb2 t1 xb1 m0) => Applicative (RecurMonad2 t2 xb2 t1 xb1 m0)
+deriving newtype instance
+  Monad (RecurMonad2Body t2 xb2 t1 xb1 m0) => Monad (RecurMonad2 t2 xb2 t1 xb1 m0)
+
+type instance Unlift (RecurMonad2 t2 xb2 t1 xb1 m0) = RecurMonad2Body t2 xb2 t1 xb1 m0
 instance {-# OVERLAPS #-}
-  Monad (t2 (RecurMonad2 t2 xb2 t1 xb1) xb2 (t1 (RecurMonad2 t2 xb2 t1 xb1) xb1 m0))
-  => GMonadTrans (RecurMonad2 t2 xb2 t1 xb1 m0) where
+  Monad (RecurMonad2Body t2 xb2 t1 xb1 m0) => GMonadTrans (RecurMonad2 t2 xb2 t1 xb1 m0) where
   glift = RecurMonad2
