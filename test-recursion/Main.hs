@@ -39,6 +39,7 @@ import qualified InversionOfControl.Recursion.Fix as RecFix
 import qualified InversionOfControl.Recursion.Pure as RecPure
 import qualified InversionOfControl.Recursion as R
 import InversionOfControl.Lift
+import InversionOfControl.LiftN
 import InversionOfControl.TypeDict
 import InversionOfControl.KFn
 import InversionOfControl.GMonadTrans
@@ -137,7 +138,7 @@ runCIO act = do
 
 type RunCIO d m a = E [k|runCIO|] (CIO a -> m a)
 type GoBool d m = E [k|recBool|] (() -> [f|bool|] -> m Bool)
-type GoInt d m = E [k|recurInt|] (() -> [f|int|] -> m Int)
+type GoInt d m = E [k|recInt|] (() -> [f|int|] -> m Int)
 
 type RecAppBase d m =
   ( Monad m
@@ -244,7 +245,7 @@ type instance Definition DSimple =
 -- type instance Definition (VarD d) =
 --   Name "bool" (Either Word [f|bool|])
 --   :+: Name "recBool" (GoBool2 d)
---   :+: Name "recurInt" (GoInt2 d)
+--   :+: Name "recInt" (GoInt2 d)
 --   :+: Follow d
 -- 
 -- type ValuateE key p r a b v m  = E (K Zero (Valuate key))
@@ -263,7 +264,7 @@ data D0
 type instance Definition D0 =
   Name "runCIO" Lifter
   :+: Name "recBool" RecPure.Rec
-  :+: Name "recurInt" RecPure.Rec
+  :+: Name "recInt" RecPure.Rec
   :+: Name "bool" Bool
   :+: Name "int" Int
   :+: End
@@ -304,9 +305,11 @@ type instance Definition DagD =
 
 -- Mutual recursion
 
-newtype BoolIntFormula = BoolIntFormula (BoolFormula IntBoolFormula BoolIntFormula)
+type BoolIntFormulaBody = (BoolFormula IntBoolFormula BoolIntFormula)
+type IntBoolFormulaBody = (IntFormula BoolIntFormula IntBoolFormula)
+newtype BoolIntFormula = BoolIntFormula BoolIntFormulaBody
   deriving newtype Show
-newtype IntBoolFormula = IntBoolFormula (IntFormula BoolIntFormula IntBoolFormula)
+newtype IntBoolFormula = IntBoolFormula IntBoolFormulaBody
   deriving newtype Show
 
 type BoolIntFormula'Body = (BoolFormula (RecDag.Ref IntBoolFormula') (RecDag.Ref BoolIntFormula'))
@@ -352,11 +355,61 @@ iorefg2 val1 val2 = do
   print ("nleqv1", nleqv1)
   RecDag.buildTopo 6 $ BoolIntFormula' $ And nleqv1 leqnv1
 
--- data RecIntBool
--- instance KFn (RecurE n RecIntBool p IntBoolFormula (IntFormula BoolIntFormula IntBoolFormula) b)
---   where kfn algebra p r@(IntBoolFormula fr) = algebra p r fr
--- 
--- data RecBoolInt
+newtype RecIntBoolT p mb xb m0 x = RecIntBoolT
+  { unRecIntBoolT :: ReaderT (p -> IntBoolFormula -> IntBoolFormulaBody -> mb xb) m0 x }
+ deriving newtype (Functor, Applicative, Monad)
+type instance Unlift (RecIntBoolT p mb xb m0) = m0
+instance MonadTrans (RecIntBoolT p mb xb) where
+  lift = RecIntBoolT . lift
+data RecIntBool
+type instance R.Algebra (R.E RecIntBool p IntBoolFormula IntBoolFormulaBody mb xb) m0 =
+  p -> IntBoolFormula -> IntBoolFormulaBody -> mb xb
+type instance R.MonadT (R.E RecIntBool p IntBoolFormula IntBoolFormulaBody mb xb) m0 =
+  RecIntBoolT p mb xb m0
+instance
+  (r ~ IntBoolFormula, a ~ IntBoolFormulaBody)
+  => R.Recursion (R.E RecIntBool p r a mb xb) m0
+ where
+  runRecursion act algebra = runReaderT (unRecIntBoolT act) algebra
+instance
+  ( Monad mb
+  , m0 ~ UnliftN (Succ nb) mb
+  , Monad m0
+  , LiftN nb (RecIntBoolT p mb xb m0) mb
+  ) => KFn (R.RecE nb RecIntBool p IntBoolFormula mb xb)
+ where
+  kfn p r@(IntBoolFormula fr) = do
+    algebra <- liftn @nb do RecIntBoolT ask
+    algebra p r fr
+
+newtype RecBoolIntT p mb xb m0 x = RecBoolIntT
+  { unRecBoolIntT :: ReaderT (p -> BoolIntFormula -> BoolIntFormulaBody -> mb xb) m0 x }
+ deriving newtype (Functor, Applicative, Monad)
+type instance Unlift (RecBoolIntT p mb xb m0) = m0
+instance MonadTrans (RecBoolIntT p mb xb) where
+  lift = RecBoolIntT . lift
+data RecBoolInt
+type instance R.Algebra (R.E RecBoolInt p BoolIntFormula BoolIntFormulaBody mb xb) m0 =
+  p -> BoolIntFormula -> BoolIntFormulaBody -> mb xb
+type instance R.MonadT (R.E RecBoolInt p BoolIntFormula BoolIntFormulaBody mb xb) m0 =
+  RecBoolIntT p mb xb m0
+instance
+  (r ~ BoolIntFormula, a ~ BoolIntFormulaBody)
+  => R.Recursion (R.E RecBoolInt p r a mb xb) m0
+ where
+  runRecursion act algebra = runReaderT (unRecBoolIntT act) algebra
+instance
+  ( Monad mb
+  , m0 ~ UnliftN (Succ nb) mb
+  , Monad m0
+  , LiftN nb (RecBoolIntT p mb xb m0) mb
+  ) => KFn (R.RecE nb RecBoolInt p BoolIntFormula mb xb)
+ where
+  kfn p r@(BoolIntFormula fr) = do
+    algebra <- liftn @nb do RecBoolIntT ask
+    algebra p r fr
+
+
 -- instance KFn (RecurE n RecBoolInt p BoolIntFormula (BoolFormula IntBoolFormula BoolIntFormula) b)
 --   where kfn algebra p r@(BoolIntFormula fr) = algebra p r fr
 
@@ -377,15 +430,18 @@ iorefg2 val1 val2 = do
 --   kfn algebra p r =
 --     kfn @(RecurE nb (RecDag.Rec n0) p (RecDag.Ref IntBoolFormula') IntBoolFormula' (mb xb))
 --       (\p r (IntBoolFormula' fr) -> algebra p r fr) p r
--- 
--- data BoolIntD
--- type instance Definition BoolIntD =
---   Name "recBool" RecBoolInt
---   :+: Name "recInt" RecIntBool
---   :+: Name "bool" BoolIntFormula
---   :+: Name "int" IntBoolFormula
---   :+: Follow D0
--- 
+
+data BoolIntD
+type instance Definition BoolIntD =
+  Name "lift" ()
+  :+: Name "recBool" RecBoolInt
+  :+: Name "lift" ()
+  :+: Name "recInt" RecIntBool
+  :+: Name "lift" ()
+  :+: Name "bool" BoolIntFormula
+  :+: Name "int" IntBoolFormula
+  :+: Follow D0
+
 -- data BoolIntD'
 -- type instance Definition BoolIntD' =
 --   Name "recBool" (RecBoolInt' (Succ (Succ Zero)))
@@ -397,9 +453,9 @@ iorefg2 val1 val2 = do
 --   :+: Follow D0
 
 type TestSingleCata d t =
-  R.E1 [f|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t Bool
+  R.E1 [f|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t Bool CIO
 
-testSingle :: forall d mb t.
+testSingle :: forall d t.
   ( RecAppAlg d (R.RecurMonad1 t Bool CIO)
   , R.BasicRecursion1C (TestSingleCata d t) CIO
   ) => String -> Bool -> Int -> [f|bool|] -> IO ()
@@ -408,6 +464,30 @@ testSingle tag wantedResult wantedCount r = do
     result <- R.runRecursion @(TestSingleCata d t)
       do R.unRecurMonad1 do R.cata @(GoBool d _) r
       do \_ _ -> boolAlgebra @d
+
+    when (wantedResult /= result) do
+      error do "testSingle result " ++ tag ++ " " ++ show wantedResult ++ " != " ++ show result
+
+  when (wantedCount /= count) do
+    error do "testSingle count " ++ tag ++ " " ++ show wantedCount ++ " != " ++ show count
+
+type TestMutualCata2 d t2 t1 =
+  R.E2_2 [f|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t2 Bool t1 Int CIO
+type TestMutualCata1 d t2 t1 =
+  R.E2_1 [f|recInt|] () [f|int|] (IntFormula [f|bool|] [f|int|]) t2 Bool t1 Int CIO
+
+testMutual :: forall d t2 t1.
+  ( RecAppAlg d (R.RecurMonad2 t2 Bool t1 Int CIO)
+  , R.BasicRecursion2C (TestMutualCata2 d t2 t1) (TestMutualCata1 d t2 t1) CIO
+  ) => String -> Bool -> Int -> [f|bool|] -> IO ()
+testMutual tag wantedResult wantedCount r = do
+  count <- runCIO do
+    result <-
+      R.runRecursion @(TestMutualCata1 d t2 t1)
+        do R.runRecursion @(TestMutualCata2 d t2 t1)
+            do R.unRecurMonad2 do R.cata @(GoBool d _) r
+            do \_ _ -> boolAlgebra @d
+        do \_ _ -> intAlgebra @d
 
     when (wantedResult /= result) do
       error do "testSingle result " ++ tag ++ " " ++ show wantedResult ++ " != " ++ show result
@@ -476,19 +556,11 @@ main = do
   --     True <- runReaderT (recBoolVar @(LiftUp VarDagD) (Right iorefg1_var')) (\0 -> False)
   --     return ()
 
-  -- -- Test mutual recursion of "Fix"
+  -- Test mutual recursion of "Fix"
 
-  -- 6 <- runCIO do
-  --   True <- recBool @BoolIntD $ fix2 False False
-  --   return ()
-
-  -- 6 <- runCIO do
-  --   False <- recBool @BoolIntD $ fix2 True False
-  --   return ()
-
-  -- 6 <- runCIO do
-  --   False <- recBool @BoolIntD $ fix2 False True
-  --   return ()
+  testMutual @BoolIntD "fix2_False_False" True 6 do fix2 False False
+  testMutual @BoolIntD "fix2_True_False" False 6 do fix2 True False
+  testMutual @BoolIntD "fix2_False_True" False 6 do fix2 False True
 
   -- -- Test mutual recursion of IORefGraph
 
@@ -510,7 +582,9 @@ main = do
   --             (RecDag.RecT () IntBoolFormula' Int CIO) Bool
   --       return ()
 
-  -- -- Test two-way recursion (the mutual one is unsupported)
+  -- -- Test two-way recursion (the mutual one is unsupported, if even reasonably generally
+  -- -- possible)
+  --
   -- 2 <- RecDag.runSemigroupAFix @Zero
   --   (RecDag.semigroupRecFix @Zero (Sum 1) iorefg1_True)
   --   \(Sum p) _ fr -> RecDag.SemigroupA $ Compose do

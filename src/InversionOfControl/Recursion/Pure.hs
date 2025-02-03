@@ -28,5 +28,5 @@ import Data.Kind
 
 data Rec
 
-instance Applicative (mb m0) => KFn (R.RecE nb Rec p xb mb m0 xb) where
+instance Applicative mb => KFn (R.RecE nb Rec p xb mb xb) where
   kfn _ = pure

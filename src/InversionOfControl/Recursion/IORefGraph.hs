@@ -88,7 +88,7 @@ buildFree free = do
 
 newtype RecT p a mb xb m0 x = RecT
   { unRecT :: ReaderT
-      ( p -> Ref a -> a -> mb m0 xb
+      ( p -> Ref a -> a -> mb xb
       , IORef (HM.HashMap (p, StableName (IORef (Word, a))) xb)
       )
       m0 x
@@ -101,7 +101,7 @@ instance MonadTrans (RecT p a mb xb) where
 type RunRecursionC m0 n0 = (Monad m0, LiftN n0 IO m0)
 
 runRecursion :: forall n0 p a mb xb m0 x.
-  RunRecursionC m0 n0 => RecT p a mb xb m0 x -> (p -> Ref a -> a -> mb m0 xb) -> m0 x
+  RunRecursionC m0 n0 => RecT p a mb xb m0 x -> (p -> Ref a -> a -> mb xb) -> m0 x
 runRecursion act algebra = do
   cacheRef <- liftn @n0 do newIORef HM.empty
   runReaderT (unRecT act) (algebra, cacheRef)
@@ -109,22 +109,22 @@ runRecursion act algebra = do
 runRecursion_Fix :: forall n0 p f mb xb m0 x.
   RunRecursionC m0 n0
   => RecT p (f (RefFix f)) mb xb m0 x
-  -> (p -> RefFix f -> f (RefFix f) -> mb m0 xb)
+  -> (p -> RefFix f -> f (RefFix f) -> mb xb)
   -> m0 x
 runRecursion_Fix act algebra =
   runRecursion @n0 act \p r fr -> algebra p (RefFix r) fr
 
 type RecurC n0 nb mb m0 xb p a =
-  ( Monad (mb m0)
-  , m0 ~ UnliftN (Succ nb) (mb m0)
+  ( Monad mb
+  , m0 ~ UnliftN (Succ nb) mb
   , Monad m0
-  , LiftN nb (RecT p a mb xb m0) (mb m0)
+  , LiftN nb (RecT p a mb xb m0) mb
   , LiftN n0 IO m0
   , Eq p, Hashable p
   ) :: Constraint
 
 recur :: forall n0 nb mb m0 xb p a.
-  RecurC n0 nb mb m0 xb p a => p -> Ref a -> mb m0 xb
+  RecurC n0 nb mb m0 xb p a => p -> Ref a -> mb xb
 recur p r@(Ref name ioref) = do
   (algebra, cacheRef) <- liftn @nb @(RecT p a mb xb m0) do RecT ask
   cache <- liftIO' $ readIORef cacheRef
@@ -136,16 +136,16 @@ recur p r@(Ref name ioref) = do
       liftIO' $ modifyIORef' cacheRef (HM.insert (p, name) result)
       return result
  where
-  liftIO' :: IO x -> mb m0 x
+  liftIO' :: IO x -> mb x
   liftIO' = liftn @nb @(RecT p a mb xb m0) . lift . liftn @n0
 
 recur_Fix :: forall n0 nb mb m0 xb p f.
-  RecurC n0 nb mb m0 xb p (f (RefFix f)) => p -> RefFix f -> mb m0 xb
+  RecurC n0 nb mb m0 xb p (f (RefFix f)) => p -> RefFix f -> mb xb
 recur_Fix p (RefFix r) = recur @n0 @nb p r
 
 data RecFix n0
 type instance R.Algebra (R.E (RecFix n0) p (RefFix f) (f (RefFix f)) mb xb) m0 =
-  p -> RefFix f -> f (RefFix f) -> mb m0 xb
+  p -> RefFix f -> f (RefFix f) -> mb xb
 type instance R.MonadT (R.E (RecFix n0) p (RefFix f) (f (RefFix f)) mb xb) m0 =
   RecT p (f (RefFix f)) mb xb m0
 
@@ -157,7 +157,7 @@ instance
 
 instance
   RecurC n0 nb mb m0 xb p (f (RefFix f))
-  => KFn (R.RecE nb (RecFix n0) p (RefFix f) mb m0 xb)
+  => KFn (R.RecE nb (RecFix n0) p (RefFix f) mb xb)
  where
   kfn = recur_Fix @n0 @nb
 
