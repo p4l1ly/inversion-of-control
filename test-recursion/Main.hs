@@ -316,6 +316,8 @@ type BoolIntFormula'Body = (BoolFormula (RecDag.Ref IntBoolFormula') (RecDag.Ref
 type IntBoolFormula'Body = (IntFormula (RecDag.Ref BoolIntFormula') (RecDag.Ref IntBoolFormula'))
 newtype BoolIntFormula' = BoolIntFormula' BoolIntFormula'Body
 newtype IntBoolFormula' = IntBoolFormula' IntBoolFormula'Body
+type BoolIntFormula'Ref = RecDag.Ref BoolIntFormula'
+type IntBoolFormula'Ref = RecDag.Ref IntBoolFormula'
 
 fix2 :: Bool -> Bool -> BoolIntFormula
 fix2 val1 val2 = BoolIntFormula $ And
@@ -409,9 +411,52 @@ instance
     algebra <- liftn @nb do RecBoolIntT ask
     algebra p r fr
 
+type RecIntBool'T p = RecDag.RecT p IntBoolFormula'
+data (RecIntBool' n0)
+type instance R.Algebra (R.E (RecIntBool' n0) p IntBoolFormula'Ref IntBoolFormula'Body mb xb) m0 =
+  p -> IntBoolFormula'Ref -> IntBoolFormula'Body -> mb xb
+type instance R.MonadT (R.E (RecIntBool' n0) p IntBoolFormula'Ref IntBoolFormula'Body mb xb) m0 =
+  RecIntBool'T p mb xb m0
+instance
+  (r ~ IntBoolFormula'Ref, a ~ IntBoolFormula'Body, RecDag.RunRecursionC m0 n0)
+  => R.Recursion (R.E (RecIntBool' n0) p r a mb xb) m0
+ where
+  runRecursion act algebra =
+    RecDag.runRecursion @n0 act (\p r (IntBoolFormula' a) -> algebra p r a)
+instance
+  RecDag.RecurC n0 nb mb m0 xb p IntBoolFormula'
+  => KFn (R.RecE nb (RecIntBool' n0) p IntBoolFormula'Ref mb xb)
+ where
+  kfn = RecDag.recur @n0 @nb
 
--- instance KFn (RecurE n RecBoolInt p BoolIntFormula (BoolFormula IntBoolFormula BoolIntFormula) b)
---   where kfn algebra p r@(BoolIntFormula fr) = algebra p r fr
+type RecBoolInt'T p = RecDag.RecT p BoolIntFormula'
+data (RecBoolInt' n0)
+type instance R.Algebra (R.E (RecBoolInt' n0) p BoolIntFormula'Ref BoolIntFormula'Body mb xb) m0 =
+  p -> BoolIntFormula'Ref -> BoolIntFormula'Body -> mb xb
+type instance R.MonadT (R.E (RecBoolInt' n0) p BoolIntFormula'Ref BoolIntFormula'Body mb xb) m0 =
+  RecBoolInt'T p mb xb m0
+instance
+  (r ~ BoolIntFormula'Ref, a ~ BoolIntFormula'Body, RecDag.RunRecursionC m0 n0)
+  => R.Recursion (R.E (RecBoolInt' n0) p r a mb xb) m0
+ where
+  runRecursion act algebra =
+    RecDag.runRecursion @n0 act (\p r (BoolIntFormula' a) -> algebra p r a)
+instance
+  RecDag.RecurC n0 nb mb m0 xb p BoolIntFormula'
+  => KFn (R.RecE nb (RecBoolInt' n0) p BoolIntFormula'Ref mb xb)
+ where
+  kfn = RecDag.recur @n0 @nb
+
+-- instance
+--   ( Monad mb
+--   , m0 ~ UnliftN (Succ nb) mb
+--   , Monad m0
+--   , LiftN nb (RecIntBool'T p mb xb m0) mb
+--   ) => KFn (R.RecE nb RecIntBool' p IntBoolFormula mb xb)
+--  where
+--   kfn p r@(IntBoolFormula fr) = do
+--     algebra <- liftn @nb do RecIntBool'T ask
+--     algebra p r fr
 
 -- data RecBoolInt' n0
 -- instance
@@ -442,15 +487,16 @@ type instance Definition BoolIntD =
   :+: Name "int" IntBoolFormula
   :+: Follow D0
 
--- data BoolIntD'
--- type instance Definition BoolIntD' =
---   Name "recBool" (RecBoolInt' (Succ (Succ Zero)))
---   :+: Name "lift" ()
---   :+: Name "recInt" (RecIntBool' (Succ Zero))
---   :+: Name "bool" (RecDag.Ref BoolIntFormula')
---   :+: Name "int" (RecDag.Ref IntBoolFormula')
---   :+: Name "lift" ()
---   :+: Follow D0
+data BoolIntD'
+type instance Definition BoolIntD' =
+  Name "lift" ()
+  :+: Name "recBool" (RecBoolInt' (Succ (Succ Zero)))
+  :+: Name "lift" ()
+  :+: Name "recInt" (RecIntBool' (Succ Zero))
+  :+: Name "lift" ()
+  :+: Name "bool" BoolIntFormula'Ref
+  :+: Name "int" IntBoolFormula'Ref
+  :+: Follow D0
 
 type TestSingleCata d t =
   R.E1 [f|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t Bool CIO
@@ -541,7 +587,6 @@ main = do
 
   iorefg1_True <- iorefg1_val True
   testSingle @DagD "iorefg1_True" False 1 iorefg1_True
-
   iorefg1_False <- iorefg1_val False
   testSingle @DagD "iorefg1_False" True 1 iorefg1_False
 
@@ -564,23 +609,10 @@ main = do
 
   -- -- Test mutual recursion of IORefGraph
 
-  -- iorefg2_00 <- iorefg2 False False
-  -- 2 <- runCIO do
-  --   RecDag.runRecT @(Succ Zero) do
-  --     RecDag.runRecT @(Succ (Succ Zero)) do
-  --       True <- recBool @BoolIntD' iorefg2_00
-  --         :: RecDag.RecT () BoolIntFormula' Bool
-  --             (RecDag.RecT () IntBoolFormula' Int CIO) Bool
-  --       return ()
-
-  -- iorefg2_10 <- iorefg2 True False
-  -- 2 <- runCIO do
-  --   RecDag.runRecT @(Succ Zero) do
-  --     RecDag.runRecT @(Succ (Succ Zero)) do
-  --       False <- recBool @BoolIntD' iorefg2_10
-  --         :: RecDag.RecT () BoolIntFormula' Bool
-  --             (RecDag.RecT () IntBoolFormula' Int CIO) Bool
-  --       return ()
+  iorefg2_00 <- iorefg2 False False
+  testMutual @BoolIntD' "iorefg2_False_False" True 2 iorefg2_00
+  iorefg2_10 <- iorefg2 True False
+  testMutual @BoolIntD' "iorefg2_True_False" False 2 iorefg2_10
 
   -- -- Test two-way recursion (the mutual one is unsupported, if even reasonably generally
   -- -- possible)
