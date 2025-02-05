@@ -357,59 +357,37 @@ iorefg2 val1 val2 = do
   print ("nleqv1", nleqv1)
   RecDag.buildTopo 6 $ BoolIntFormula' $ And nleqv1 leqnv1
 
-newtype RecIntBoolT p mb xb m0 x = RecIntBoolT
-  { unRecIntBoolT :: ReaderT (p -> IntBoolFormula -> IntBoolFormulaBody -> mb xb) m0 x }
- deriving newtype (Functor, Applicative, Monad)
-type instance Unlift (RecIntBoolT p mb xb m0) = m0
-instance MonadTrans (RecIntBoolT p mb xb) where
-  lift = RecIntBoolT . lift
 data RecIntBool
 type instance R.Algebra (R.E RecIntBool p IntBoolFormula IntBoolFormulaBody mb xb) m0 =
   p -> IntBoolFormula -> IntBoolFormulaBody -> mb xb
 type instance R.MonadT (R.E RecIntBool p IntBoolFormula IntBoolFormulaBody mb xb) m0 =
-  RecIntBoolT p mb xb m0
+  RecFix.RecT p IntBoolFormula mb xb m0
 instance
   (r ~ IntBoolFormula, a ~ IntBoolFormulaBody)
   => R.Recursion (R.E RecIntBool p r a mb xb) m0
  where
-  runRecursion act algebra = runReaderT (unRecIntBoolT act) algebra
+  runRecursion act algebra = RecFix.runRecursion act (\p r@(IntBoolFormula a) -> algebra p r a)
 instance
-  ( Monad mb
-  , m0 ~ UnliftN (Succ nb) mb
-  , Monad m0
-  , LiftN nb (RecIntBoolT p mb xb m0) mb
-  ) => KFn (R.RecE nb RecIntBool p IntBoolFormula mb xb)
+  RecFix.RecurC nb mb m0 xb p IntBoolFormula
+  => KFn (R.RecE nb RecIntBool p IntBoolFormula mb xb)
  where
-  kfn p r@(IntBoolFormula fr) = do
-    algebra <- liftn @nb do RecIntBoolT ask
-    algebra p r fr
+  kfn = RecFix.recur @nb
 
-newtype RecBoolIntT p mb xb m0 x = RecBoolIntT
-  { unRecBoolIntT :: ReaderT (p -> BoolIntFormula -> BoolIntFormulaBody -> mb xb) m0 x }
- deriving newtype (Functor, Applicative, Monad)
-type instance Unlift (RecBoolIntT p mb xb m0) = m0
-instance MonadTrans (RecBoolIntT p mb xb) where
-  lift = RecBoolIntT . lift
 data RecBoolInt
 type instance R.Algebra (R.E RecBoolInt p BoolIntFormula BoolIntFormulaBody mb xb) m0 =
   p -> BoolIntFormula -> BoolIntFormulaBody -> mb xb
 type instance R.MonadT (R.E RecBoolInt p BoolIntFormula BoolIntFormulaBody mb xb) m0 =
-  RecBoolIntT p mb xb m0
+  RecFix.RecT p BoolIntFormula mb xb m0
 instance
   (r ~ BoolIntFormula, a ~ BoolIntFormulaBody)
   => R.Recursion (R.E RecBoolInt p r a mb xb) m0
  where
-  runRecursion act algebra = runReaderT (unRecBoolIntT act) algebra
+  runRecursion act algebra = RecFix.runRecursion act (\p r@(BoolIntFormula a) -> algebra p r a)
 instance
-  ( Monad mb
-  , m0 ~ UnliftN (Succ nb) mb
-  , Monad m0
-  , LiftN nb (RecBoolIntT p mb xb m0) mb
-  ) => KFn (R.RecE nb RecBoolInt p BoolIntFormula mb xb)
+  RecFix.RecurC nb mb m0 xb p BoolIntFormula
+  => KFn (R.RecE nb RecBoolInt p BoolIntFormula mb xb)
  where
-  kfn p r@(BoolIntFormula fr) = do
-    algebra <- liftn @nb do RecBoolIntT ask
-    algebra p r fr
+  kfn = RecFix.recur @nb
 
 type RecIntBool'T p = RecDag.RecT p IntBoolFormula'
 data (RecIntBool' n0)
@@ -547,7 +525,7 @@ main = do
 
   True <- RecFix.runRecursion
     do R.unRecurMonad1 do RecFix.recur @(Succ Zero) () (fix1_val False)
-    do \_ _ -> boolAlgebraSimple @DSimple
+    do \_ (Fix a) -> boolAlgebraSimple @DSimple a
 
   True <- R.runRecursion @(R.E RecFix.Rec _ _ _ _ _)
     do R.unRecurMonad1 do kfn @(GoBool DSimple _) () (fix1_val False)
@@ -614,19 +592,19 @@ main = do
   iorefg2_10 <- iorefg2 True False
   testMutual @BoolIntD' "iorefg2_True_False" False 2 iorefg2_10
 
-  -- -- Test two-way recursion (the mutual one is unsupported, if even reasonably generally
-  -- -- possible)
-  --
-  -- 2 <- RecDag.runSemigroupAFix @Zero
-  --   (RecDag.semigroupRecFix @Zero (Sum 1) iorefg1_True)
-  --   \(Sum p) _ fr -> RecDag.SemigroupA $ Compose do
-  --     let RecDag.SemigroupA (Compose bef) =
-  --           for fr \child -> RecDag.SemigroupA $ Compose do
-  --             let RecDag.SemigroupA (Compose bef) =
-  --                   RecDag.semigroupRecFix @Zero (Sum 1) child
-  --             bef
-  --     aft <- bef
-  --     return do (fromEnum (p > 1) +) . sum <$> aft
+  -- Test two-way recursion (the mutual one is unsupported, if even reasonably generally
+  -- possible)
+  
+  2 <- RecDag.runMergingRecursion_Fix @Zero
+    do RecDag.mergeAndRecur_Fix @Zero (Sum 1) iorefg1_True
+    do \(Sum p) _ fr -> RecDag.MergingA $ Compose do
+        let RecDag.MergingA (Compose bef) =
+              for fr \child -> RecDag.MergingA $ Compose do
+                let RecDag.MergingA (Compose bef) =
+                      RecDag.mergeAndRecur_Fix @Zero (Sum 1) child
+                bef
+        aft <- bef
+        return do (fromEnum (p > 1) +) . sum <$> aft
 
   -- -- Test recursion of composition of IORefGraph and Free
   -- -- TODO

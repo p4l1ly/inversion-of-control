@@ -31,39 +31,39 @@ import InversionOfControl.GMonadTrans
 import qualified InversionOfControl.Recursion as R
 import Data.Kind
 
-newtype RecT p f mb xb m0 x =
-  RecT { unRecT :: ReaderT (p -> Fix f -> f (Fix f) -> mb xb) m0 x }
+newtype RecT p r mb xb m0 x =
+  RecT { unRecT :: ReaderT (p -> r -> mb xb) m0 x }
   deriving newtype (Functor, Applicative, Monad)
-type instance Unlift (RecT p f mb xb m0) = m0
-instance MonadTrans (RecT p f mb xb) where
+type instance Unlift (RecT p r mb xb m0) = m0
+instance MonadTrans (RecT p r mb xb) where
   lift = RecT . lift
 
 runRecursion
-  :: RecT p f mb xb m0 c
-  -> (p -> Fix f -> f (Fix f) -> mb xb)
+  :: RecT p r mb xb m0 c
+  -> (p -> r -> mb xb)
   -> m0 c
 runRecursion act algebra = runReaderT (unRecT act) algebra
 
-type RecurC nb mb m0 xb p f =
+type RecurC nb mb m0 xb p r =
   ( Monad mb
   , m0 ~ UnliftN (Succ nb) mb
   , Monad m0
-  , LiftN nb (RecT p f mb xb m0) mb
+  , LiftN nb (RecT p r mb xb m0) mb
   ) :: Constraint
 
-recur :: forall nb mb m0 xb p f a.
-  RecurC nb mb m0 xb p f => p -> Fix f -> mb xb
-recur p r@(Fix fr) = do
+recur :: forall nb mb m0 xb p r.
+  RecurC nb mb m0 xb p r => p -> r -> mb xb
+recur p r = do
   algebra <- liftn @nb do RecT ask
-  algebra p r fr
+  algebra p r
 
 data Rec
 type instance R.Algebra (R.E Rec p (Fix f) (f (Fix f)) mb xb) m0 =
   p -> Fix f -> f (Fix f) -> mb xb
-type instance R.MonadT (R.E Rec p (Fix f) (f (Fix f)) mb xb) m0 = RecT p f mb xb m0
+type instance R.MonadT (R.E Rec p (Fix f) (f (Fix f)) mb xb) m0 = RecT p (Fix f) mb xb m0
 
 instance (r ~ Fix f, a ~ f (Fix f)) => R.Recursion (R.E Rec p r a mb xb) m0 where
-  runRecursion = runRecursion
+  runRecursion act algebra = runRecursion act (\p r@(Fix a) -> algebra p r a)
 
-instance RecurC nb mb m0 xb p f => KFn (R.RecE nb Rec p (Fix f) mb xb) where
+instance RecurC nb mb m0 xb p r => KFn (R.RecE nb Rec p r mb xb) where
   kfn = recur @nb
