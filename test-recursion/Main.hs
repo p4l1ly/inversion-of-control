@@ -216,57 +216,40 @@ type instance Definition DSimple =
   :+: Name "bool" (Fix (BoolFormula Int))
   :+: End
 
--- -- Valuated var recursion
--- 
--- type VarT = ReaderT (Word -> Bool)
--- 
--- type RecAppVar d m =
---   ( Monad m
---   , RecAppBase (VarD d) (VarT m)
---   , KFn (RecBoolVar d m)
---   , KFn (RecInt (VarD d) (VarT m))
---   ) :: Constraint
--- 
--- type RecBoolVar d m = [e|CataE|recBool|] [f|bool|]
---   (Compose (BoolFormula [f|int|]) (Either Word) [f|bool|]) (VarT m Bool)
--- 
--- data GoBool2 d
--- data GoInt2 d
--- 
--- instance (RecAppVar d m, bool ~ [f|bool|]) =>
---   KFn (E (K Zero (GoBool2 d)) (Either Word bool -> VarT m Bool))
---   where kfn = recBoolVar @d
--- 
--- instance (RecAppVar d m, int ~ [f|int|]) => KFn (E (K Zero (GoInt2 d)) (int -> VarT m Int))
---   where kfn = recIntVar @d
--- 
--- recBoolVar :: forall d m. RecAppVar d m => Either Word [f|bool|] -> VarT m Bool
--- recBoolVar = \case
---
---   Left x -> ($ x) <$> ask
---   Right r -> cata @(RecBoolVar d m) (boolAlgebra @(VarD d) . getCompose) r
--- 
--- recIntVar :: forall d m. RecAppVar d m => [f|int|] -> VarT m Int
--- recIntVar = cata @(RecInt (VarD d) (VarT m)) $ intAlgebra @(VarD d)
--- 
--- data VarD d
--- type instance Definition (VarD d) =
---   Name "bool" (Either Word [f|bool|])
---   :+: Name "recBool" (GoBool2 d)
---   :+: Name "recInt" (GoInt2 d)
---   :+: Follow d
--- 
--- type ValuateE key p r a b v m  = E (K Zero (Valuate key))
---   ((p -> r -> a -> ReaderT (v -> b) m b) -> p -> Either v r -> ReaderT (v -> b) m b)
--- 
--- data Valuate key
--- instance
---   (Monad m, KFn (E key (Recur p r a (ReaderT (v -> b) m b)))) =>
---   KFn (ValuateE key p r a b v m)
---   where
---   kfn algebra p er = case er of
---     Left x -> ($ x) <$> ask
---     Right r -> kfn @(E key (Recur p r a (ReaderT (v -> b) m b))) algebra p r
+-- Valuated var recursion
+
+type VarT = ReaderT (Word -> Bool)
+
+data VarRec k
+type instance R.Algebra
+  (R.E (K nb (VarRec k)) p (Either Word r) (f (Either Word r)) mb xb) m0
+ = p -> Either Word r -> f (Either Word r) -> mb xb
+type instance R.MonadT
+  (R.E (K nb (VarRec k)) p (Either Word r) (f (Either Word r)) mb xb) m0
+ = R.MonadT (R.E k p r (Compose f (Either Word) r) mb xb) m0
+instance
+  ( R.Algebra (R.E k p r (Compose f (Either Word) r) mb xb) m0 ~
+      (p -> r -> Compose f (Either Word) r -> mb xb)
+  , R.Recursion (R.E k p r (Compose f (Either Word) r) mb xb) m0
+  ) => R.Recursion (R.E (K nb (VarRec k)) p (Either Word r) (f (Either Word r)) mb xb) m0
+ where
+  runRecursion act algebra = R.runRecursion
+    @(R.E k p r (Compose f (Either Word) r) mb xb)
+    act
+    \p r (Compose fr) -> algebra p (Right r) fr
+
+instance
+  ( KFn (E k (p -> r -> mb Bool))
+  , LiftN nb (VarT m) mb
+  , Monad m
+  , Functor mb
+  ) => KFn (E (K nb (VarRec k)) (p -> Either Word r -> mb Bool))
+ where
+  kfn p = \case
+    Left w -> ($ w) <$> liftn @nb ask
+    Right r -> kfn @(E k (p -> r -> mb Bool)) p r
+
+-- Basic variants of settings
 
 data D0
 type instance Definition D0 =
@@ -284,11 +267,6 @@ type instance Definition FixD =
   :+: Name "bool" (Fix (BoolFormula Int))
   :+: Name "lift" ()
   :+: Follow D0
-
--- data VarFixD
--- type instance Definition VarFixD =
---   Name "bool" (Fix (Compose (BoolFormula Int) (Either Word)))
---   :+: Follow FixD
 
 data FreeD
 type instance Definition FreeD =
@@ -316,10 +294,27 @@ type instance Definition DagFreeD =
   :+: Name "bool" (RecDagFree.Ref (BoolFormula Int))
   :+: Follow D0
 
--- data VarDagD
--- type instance Definition VarDagD =
---   Name "bool" (RecDag.RefFix (Compose (BoolFormula Int) (Either Word)))
---   :+: Follow DagD
+-- Variable valuation variants of settings
+
+data VarFixD
+type instance Definition VarFixD =
+  Name "lift" ()
+  :+: Name "recBool0" RecFix.Rec
+  :+: Name "lift" ()
+  :+: Name "recBool" (VarRec [ks|recBool0|])
+  :+: Name "lift" ()
+  :+: Name "bool" (Either Word (Fix (Compose (BoolFormula Int) (Either Word))))
+  :+: Follow D0
+
+data VarDagD
+type instance Definition VarDagD =
+  Name "lift" ()
+  :+: Name "recBool0" (RecDag.RecFix (Succ (Succ Zero)))
+  :+: Name "lift" ()
+  :+: Name "recBool" (VarRec [ks|recBool0|])
+  :+: Name "lift" ()
+  :+: Name "bool" (Either Word (RecDag.RefFix (Compose (BoolFormula Int) (Either Word))))
+  :+: Follow D0
 
 -- Mutual recursion
 
@@ -510,10 +505,8 @@ testSingle tag wantedResult wantedCount r = do
     result <- R.runRecursion @(TestSingleCata d t)
       do R.unRecurMonad1 do R.cata @(GoBool d _) r
       do \_ _ -> boolAlgebra @d
-
     when (wantedResult /= result) do
       error do "testSingle result " ++ tag ++ " " ++ show wantedResult ++ " != " ++ show result
-
   when (wantedCount /= count) do
     error do "testSingle count " ++ tag ++ " " ++ show wantedCount ++ " != " ++ show count
 
@@ -534,10 +527,28 @@ testMutual tag wantedResult wantedCount r = do
             do R.unRecurMonad2 do R.cata @(GoBool d _) r
             do \_ _ -> boolAlgebra @d
         do \_ _ -> intAlgebra @d
-
     when (wantedResult /= result) do
       error do "testSingle result " ++ tag ++ " " ++ show wantedResult ++ " != " ++ show result
+  when (wantedCount /= count) do
+    error do "testSingle count " ++ tag ++ " " ++ show wantedCount ++ " != " ++ show count
 
+type TestSingleVarCata d t =
+  R.E1 [k|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t Bool (VarT CIO)
+
+testSingleVar :: forall d t.
+  ( RecAppAlg d (R.RecurMonad1 t Bool (VarT CIO))
+  , R.BasicRecursion1C (TestSingleVarCata d t) (VarT CIO)
+  ) => String -> Bool -> Int -> (Word -> Bool) -> [f|bool|] -> IO ()
+testSingleVar tag wantedResult wantedCount valuation r = do
+  count <- runCIO do
+    runReaderT
+      do
+        result <- R.runRecursion @(TestSingleVarCata d t)
+          do R.unRecurMonad1 do R.cata @(GoBool d _) r
+          do \_ _ -> boolAlgebra @d
+        when (wantedResult /= result) do
+          error do "testSingle result " ++ tag ++ " " ++ show wantedResult ++ " != " ++ show result
+      valuation
   when (wantedCount /= count) do
     error do "testSingle count " ++ tag ++ " " ++ show wantedCount ++ " != " ++ show count
 
@@ -570,13 +581,8 @@ main = do
   testSingle @FixD "fix1_true" False 2 (fix1_val True)
   testSingle @FixD "fix1_false" True 2 (fix1_val False)
 
-  -- 2 <- runCIO do
-  --   False <- runReaderT (recBoolVar @(LiftUp VarFixD) (Right fix1_var)) (\0 -> True)
-  --   return ()
-
-  -- 2 <- runCIO do
-  --   True <- runReaderT (recBoolVar @(LiftUp VarFixD) (Right fix1_var)) (\0 -> False)
-  --   return ()
+  testSingleVar @VarFixD "fix1_var_true" False 2 (\0 -> True) (Right fix1_var)
+  testSingleVar @VarFixD "fix1_var_false" True 2 (\0 -> False) (Right fix1_var)
 
   -- Test recursion of Free
 
@@ -590,16 +596,9 @@ main = do
   iorefg1_False <- iorefg1_val False
   testSingle @DagD "iorefg1_False" True 1 iorefg1_False
 
-  -- iorefg1_var' <- iorefg1_var
-  -- 1 <- runCIO do
-  --   RecDag.runRecT @(Succ Zero) do
-  --     False <- runReaderT (recBoolVar @(LiftUp VarDagD) (Right iorefg1_var')) (\0 -> True)
-  --     return ()
-
-  -- 1 <- runCIO do
-  --   RecDag.runRecT @(Succ Zero) do
-  --     True <- runReaderT (recBoolVar @(LiftUp VarDagD) (Right iorefg1_var')) (\0 -> False)
-  --     return ()
+  iorefg1_var' <- iorefg1_var
+  testSingleVar @VarDagD "iorefg1_var_true" False 1 (\0 -> True) (Right iorefg1_var')
+  testSingleVar @VarDagD "iorefg1_var_false" True 1 (\0 -> False) (Right iorefg1_var')
 
   -- Test mutual recursion of "Fix"
 
@@ -607,7 +606,7 @@ main = do
   testMutual @BoolIntD "fix2_True_False" False 6 do fix2 True False
   testMutual @BoolIntD "fix2_False_True" False 6 do fix2 False True
 
-  -- -- Test mutual recursion of IORefGraph
+  -- Test mutual recursion of IORefGraph
 
   iorefg2_00 <- iorefg2 False False
   testMutual @BoolIntD' "iorefg2_False_False" True 2 iorefg2_00
@@ -634,5 +633,7 @@ main = do
   testSingle @DagFreeD "iorefgf1_True" False 1 iorefgf1_True
   iorefgf1_False <- iorefgf1_val False
   testSingle @DagFreeD "iorefgf1_False" True 1 iorefgf1_False
+
+  -- TODO two-way recursion of RecDagFree
 
   return ()
