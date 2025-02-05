@@ -34,6 +34,7 @@ import Data.Functor.Compose
 import Data.Fix hiding (cata)
 import Control.Monad.Free
 import qualified InversionOfControl.Recursion.IORefGraph as RecDag
+import qualified InversionOfControl.Recursion.IORefGraphFree as RecDagFree
 import qualified InversionOfControl.Recursion.Free as RecFree
 import qualified InversionOfControl.Recursion.Fix as RecFix
 import qualified InversionOfControl.Recursion.Pure as RecPure
@@ -111,17 +112,24 @@ shared x = Right (Pure x)
 
 iorefg1_val :: Bool -> IO (RecDag.RefFix (BoolFormula Int))
 iorefg1_val val = do
-  leq <- RecDag.buildFoldable $ Leq 1 2
+  leq <- Pure <$> RecDag.buildFoldable (Leq 1 2)
   RecDag.buildFree $ Free $ And
-    (Free $ Not $ Free $ And (Pure leq) (Free $ BoolLit val))
-    (Free $ And (Pure leq) (Free $ Not $ Free $ BoolLit val))
+    do Free $ Not $ Free $ And leq $ Free $ BoolLit val
+    do Free $ And leq $ Free $ Not $ Free $ BoolLit val
+
+iorefgf1_val :: Bool -> IO (RecDagFree.Ref (BoolFormula Int))
+iorefgf1_val val = do
+  leq <- Pure <$> RecDag.buildTopo 0 (RecDagFree.Ref $ Free $ Leq 1 2)
+  return $ RecDagFree.Ref $ Free $ And
+    do Free $ Not $ Free $ And leq $ Free $ BoolLit val
+    do Free $ And leq $ Free $ Not $ Free $ BoolLit val
 
 iorefg1_var :: IO (RecDag.RefFix (Compose (BoolFormula Int) (Either Word)))
 iorefg1_var = do
   leq <- RecDag.buildFoldable $ Compose $ Leq 1 2
   RecDag.buildFree $ Free $ Compose $ And
-    (term $ Not $ term $ And (shared leq) (Left 0))
-    (term $ And (shared leq) (term $ Not $ Left 0))
+    do term $ Not $ term $ And (shared leq) (Left 0)
+    do term $ And (shared leq) (term $ Not $ Left 0)
 
 type CIO = ReaderT (IORef Int) IO
 
@@ -298,6 +306,16 @@ type instance Definition DagD =
   :+: Name "lift" ()
   :+: Follow D0
 
+data DagFreeD
+type instance Definition DagFreeD =
+  Name "lift" ()
+  :+: Name "recBool" (RecDagFree.Rec (Succ Zero))
+  :+: Name "lift" ()
+  :+: Name "lift" ()
+  :+: Name "lift" ()
+  :+: Name "bool" (RecDagFree.Ref (BoolFormula Int))
+  :+: Follow D0
+
 -- data VarDagD
 -- type instance Definition VarDagD =
 --   Name "bool" (RecDag.RefFix (Compose (BoolFormula Int) (Either Word)))
@@ -368,7 +386,7 @@ instance
  where
   runRecursion act algebra = RecFix.runRecursion act (\p r@(IntBoolFormula a) -> algebra p r a)
 instance
-  RecFix.RecurC nb mb m0 xb p IntBoolFormula
+  RecFix.RecurC nb mb xb p IntBoolFormula
   => KFn (R.RecE nb RecIntBool p IntBoolFormula mb xb)
  where
   kfn = RecFix.recur @nb
@@ -384,7 +402,7 @@ instance
  where
   runRecursion act algebra = RecFix.runRecursion act (\p r@(BoolIntFormula a) -> algebra p r a)
 instance
-  RecFix.RecurC nb mb m0 xb p BoolIntFormula
+  RecFix.RecurC nb mb xb p BoolIntFormula
   => KFn (R.RecE nb RecBoolInt p BoolIntFormula mb xb)
  where
   kfn = RecFix.recur @nb
@@ -610,7 +628,11 @@ main = do
         aft <- bef
         return do (fromEnum (p > 1) +) . sum <$> aft
 
-  -- -- Test recursion of composition of IORefGraph and Free
-  -- -- TODO
+  -- Test recursion of composition of IORefGraph and Free
+
+  iorefgf1_True <- iorefgf1_val True
+  testSingle @DagFreeD "iorefgf1_True" False 1 iorefgf1_True
+  iorefgf1_False <- iorefgf1_val False
+  testSingle @DagFreeD "iorefgf1_False" True 1 iorefgf1_False
 
   return ()

@@ -36,7 +36,7 @@ import Control.Monad.Reader
 import Data.Hashable
 import Data.Kind
 
-newtype Ref f = Ref (Free f (G.Ref (Ref f)))
+newtype Ref f = Ref (Free f (G.Ref (Ref f))) deriving Show
 
 type M1 mb xb p f m0 = F.RecT p f (G.Ref (Ref f)) mb xb m0
 type M2 mb xb p f m0 = G.RecT p (Ref f) mb xb (M1 mb xb p f m0)
@@ -44,9 +44,9 @@ type M2 mb xb p f m0 = G.RecT p (Ref f) mb xb (M1 mb xb p f m0)
 newtype RecT p f mb xb m0 x = RecT
   { unRecT :: M2 mb xb p f m0 x }
   deriving newtype (Functor, Applicative, Monad)
-type instance Unlift (RecT p r mb xb m0) = m0
-instance MonadTrans (RecT p r mb xb) where
-  lift = RecT . lift . lift
+type instance Unlift (RecT p f mb xb m0) = M2 mb xb p f m0
+instance {-# OVERLAPS #-} Monad m0 => GMonadTrans (RecT p f mb xb m0) where
+  glift = RecT
 
 type RunRecursionC n0 nb m0 mb xb p f =
   ( G.RunRecursionC (M1 mb xb p f m0) (Succ n0)
