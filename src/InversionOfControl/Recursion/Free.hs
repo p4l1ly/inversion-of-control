@@ -44,15 +44,14 @@ runRecursion
   -> m0 c
 runRecursion act goLeaf algebra = runReaderT (unRecT act) (algebra, goLeaf)
 
-type RecurC nb mb m0 xb p f a =
+type RecurC nb mb xb p f a =
   ( Monad mb
-  , m0 ~ UnliftN (Succ nb) mb
-  , Monad m0
-  , LiftN nb (RecT p f a mb xb m0) mb
+  , Monad (UnliftN (Succ nb) mb)
+  , LiftN nb (RecT p f a mb xb (UnliftN (Succ nb) mb)) mb
   ) :: Constraint
 
 recur :: forall nb mb m0 xb p f a.
-  RecurC nb mb m0 xb p f a => p -> Free f a -> mb xb
+  RecurC nb mb xb p f a => p -> Free f a -> mb xb
 recur p r = do
   (algebra, goLeaf) <- liftn @nb do RecT ask
   case r of
@@ -60,15 +59,15 @@ recur p r = do
     Pure a -> goLeaf p a
 
 data RecPure
-type instance R.Algebra (R.E RecPure p (Free f xb) (f (Free f xb)) mb xb) m0 =
+type instance R.Algebra (R.E (K nb RecPure) p (Free f xb) (f (Free f xb)) mb xb) m0 =
   p -> Free f xb -> f (Free f xb) -> mb xb
-type instance R.MonadT (R.E RecPure p (Free f xb) (f (Free f xb)) mb xb) m0 = RecT p f xb mb xb m0
+type instance R.MonadT (R.E (K nb RecPure) p (Free f xb) (f (Free f xb)) mb xb) m0 = RecT p f xb mb xb m0
 
 instance
   (r ~ Free f xb, a ~ f (Free f xb), Applicative mb)
-  => R.Recursion (R.E RecPure p r a mb xb) m0
+  => R.Recursion (R.E (K nb RecPure) p r a mb xb) m0
  where
   runRecursion act = runRecursion act (\_ -> pure)
 
-instance RecurC nb mb m0 xb p f xb => KFn (R.RecE nb RecPure p (Free f xb) mb xb) where
+instance RecurC nb mb xb p f xb => KFn (R.RecE nb RecPure p (Free f xb) mb xb) where
   kfn = recur @nb

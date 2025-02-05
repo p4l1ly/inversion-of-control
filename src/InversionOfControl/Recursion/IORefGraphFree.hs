@@ -25,10 +25,12 @@ module InversionOfControl.Recursion.IORefGraphFree where
 
 import Control.Monad.Free
 import InversionOfControl.TypeDict
-import InversionOfControl.Recursion
+import qualified InversionOfControl.Recursion as R
+import InversionOfControl.KFn
 import InversionOfControl.Lift
 import InversionOfControl.LiftN
 import qualified InversionOfControl.Recursion.IORefGraph as G
+import qualified InversionOfControl.Recursion.Free as F
 import InversionOfControl.GMonadTrans
 import Control.Monad.Reader
 import Data.Hashable
@@ -36,43 +38,53 @@ import Data.Kind
 
 newtype Ref f = Ref (Free f (G.Ref (Ref f)))
 
-type RecT p f b = ReaderT (p -> Ref f -> f (Ref f) -> b)
+type M1 mb xb p f m0 = F.RecT p f (G.Ref (Ref f)) mb xb m0
+type M2 mb xb p f m0 = G.RecT p (Ref f) mb xb (M1 mb xb p f m0)
 
-type M0 nb mb = Unlift (Unlift (UnliftN nb mb))
-type M1 nb mb xb p f = RecT p f (mb xb) (M0 nb mb)
-type M2 nb mb xb p f = G.RecT p (Ref f) mb xb (M1 nb mb xb p f)
+newtype RecT p f mb xb m0 x = RecT
+  { unRecT :: M2 mb xb p f m0 x }
+  deriving newtype (Functor, Applicative, Monad)
+type instance Unlift (RecT p r mb xb m0) = m0
+instance MonadTrans (RecT p r mb xb) where
+  lift = RecT . lift . lift
 
-type RunRecursionC n0 nb mb xb p f c =
-  ( G.RunRecursionC (M1 nb mb xb p f) (Succ n0)
-  , G.RecurC (Succ n0) nb mb xb p (Ref f)
+type RunRecursionC n0 nb m0 mb xb p f =
+  ( G.RunRecursionC (M1 mb xb p f m0) (Succ n0)
+  , G.RecurC (Succ n0) (Succ nb) mb xb p (Ref f)
   , Functor f
   ) :: Constraint
 
-runRecursion :: forall n0 nb mb xb p f c.
-  RunRecursionC n0 nb mb xb p f c
-  => M2 nb mb xb p f c
+runRecursion :: forall n0 nb p f mb xb m0 x.
+  RunRecursionC n0 nb m0 mb xb p f
+  => RecT p f mb xb m0 x
   -> (p -> Ref f -> f (Ref f) -> mb xb)
-  -> M0 nb mb c
+  -> m0 x
 runRecursion act algebra = do
-  runReaderT
-    do G.runRecursion @(Succ n0) act \p gr r@(Ref free) -> do
+  F.runRecursion
+    do G.runRecursion @(Succ n0) (unRecT act) \p gr r@(Ref free) -> do
+        -- The naive implementation would be `F.recur @(Succ nb) p free` but then we would never
+        -- get references to G.Ref in the algebra. We want to pass `Pure gr` instead of its content
+        -- if we are directly under it.
         case free of
           Free ffree -> algebra p (Ref (Pure gr)) (fmap Ref ffree)
-          Pure gr' -> G.recur @(Succ n0) @nb p gr'
-    algebra
+          Pure gr' -> G.recur @(Succ n0) @(Succ nb) p gr'
+    do \p gr -> G.recur @(Succ n0) @(Succ nb) p gr
+    do \p free ffree -> algebra p (Ref free) (fmap Ref ffree)
 
-type RecurC n0 nb mb xb p f =
-  ( Monad mb
-  , Monad (M0 nb mb)
-  , LiftN (Succ nb) (M1 nb mb xb p f) mb
-  , G.RecurC (Succ n0) nb mb xb p (Ref f)
-  , Functor f
-  ) :: Constraint
+type RecurC nb mb xb p f = F.RecurC (Succ (Succ nb)) mb xb p f (G.Ref (Ref f))
 
 recur :: forall n0 nb mb xb p f.
-  RecurC n0 nb mb xb p f => p -> Ref f -> mb xb
-recur p r@(Ref free) = case free of
-  Pure gr' -> G.recur @(Succ n0) @nb p gr'
-  Free ffree -> do
-    algebra <- liftn @(Succ nb) ask
-    algebra p (Ref free) (fmap Ref ffree)
+  RecurC nb mb xb p f => p -> Ref f -> mb xb
+recur p r@(Ref free) = F.recur @(Succ (Succ nb)) p free
+
+data (Rec n0)
+type instance R.Algebra (R.E (K nb (Rec n0)) p (Ref f) (f (Ref f)) mb xb) m0 =
+  p -> Ref f -> f (Ref f) -> mb xb
+type instance R.MonadT (R.E (K nb (Rec n0)) p (Ref f) (f (Ref f)) mb xb) m0 =
+  RecT p f mb xb m0
+instance
+  (r ~ Ref f, a ~ f (Ref f), RunRecursionC n0 nb m0 mb xb p f)
+  => R.Recursion (R.E (K nb (Rec n0)) p r a mb xb) m0 where
+  runRecursion act algebra = runRecursion @n0 @nb act algebra
+instance RecurC nb mb xb p f => KFn (R.RecE nb (Rec n0) p (Ref f) mb xb) where
+  kfn = recur @n0 @nb

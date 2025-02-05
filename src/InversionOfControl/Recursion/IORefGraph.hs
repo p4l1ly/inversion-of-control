@@ -114,19 +114,19 @@ runRecursion_Fix :: forall n0 p f mb xb m0 x.
 runRecursion_Fix act algebra =
   runRecursion @n0 act \p r fr -> algebra p (RefFix r) fr
 
-type RecurC n0 nb mb m0 xb p a =
+type M0 nb mb = UnliftN (Succ nb) mb
+type RecurC n0 nb mb xb p a =
   ( Monad mb
-  , m0 ~ UnliftN (Succ nb) mb
-  , Monad m0
-  , LiftN nb (RecT p a mb xb m0) mb
-  , LiftN n0 IO m0
+  , Monad (UnliftN (Succ nb) mb)
+  , LiftN nb (RecT p a mb xb (UnliftN (Succ nb) mb)) mb
+  , LiftN n0 IO (UnliftN (Succ nb) mb)
   , Eq p, Hashable p
   ) :: Constraint
 
-recur :: forall n0 nb mb m0 xb p a.
-  RecurC n0 nb mb m0 xb p a => p -> Ref a -> mb xb
+recur :: forall n0 nb mb xb p a.
+  RecurC n0 nb mb xb p a => p -> Ref a -> mb xb
 recur p r@(Ref name ioref) = do
-  (algebra, cacheRef) <- liftn @nb @(RecT p a mb xb m0) do RecT ask
+  (algebra, cacheRef) <- liftn @nb @(RecT p a mb xb (M0 nb mb)) do RecT ask
   cache <- liftIO' $ readIORef cacheRef
   case HM.lookup (p, name) cache of
     Just b -> return b
@@ -137,26 +137,26 @@ recur p r@(Ref name ioref) = do
       return result
  where
   liftIO' :: IO x -> mb x
-  liftIO' = liftn @nb @(RecT p a mb xb m0) . lift . liftn @n0
+  liftIO' = liftn @nb @(RecT p a mb xb (M0 nb mb)) . lift . liftn @n0
 
-recur_Fix :: forall n0 nb mb m0 xb p f.
-  RecurC n0 nb mb m0 xb p (f (RefFix f)) => p -> RefFix f -> mb xb
+recur_Fix :: forall n0 nb mb xb p f.
+  RecurC n0 nb mb xb p (f (RefFix f)) => p -> RefFix f -> mb xb
 recur_Fix p (RefFix r) = recur @n0 @nb p r
 
 data RecFix n0
-type instance R.Algebra (R.E (RecFix n0) p (RefFix f) (f (RefFix f)) mb xb) m0 =
+type instance R.Algebra (R.E (K nb (RecFix n0)) p (RefFix f) (f (RefFix f)) mb xb) m0 =
   p -> RefFix f -> f (RefFix f) -> mb xb
-type instance R.MonadT (R.E (RecFix n0) p (RefFix f) (f (RefFix f)) mb xb) m0 =
+type instance R.MonadT (R.E (K nb (RecFix n0)) p (RefFix f) (f (RefFix f)) mb xb) m0 =
   RecT p (f (RefFix f)) mb xb m0
 
 instance
   (r ~ RefFix f, a ~ f (RefFix f), RunRecursionC m0 n0)
-  => R.Recursion (R.E (RecFix n0) p r a mb xb) m0
+  => R.Recursion (R.E (K nb (RecFix n0)) p r a mb xb) m0
  where
   runRecursion = runRecursion_Fix @n0
 
 instance
-  RecurC n0 nb mb m0 xb p (f (RefFix f))
+  RecurC n0 nb mb xb p (f (RefFix f))
   => KFn (R.RecE nb (RecFix n0) p (RefFix f) mb xb)
  where
   kfn = recur_Fix @n0 @nb

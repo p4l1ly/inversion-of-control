@@ -44,26 +44,25 @@ runRecursion
   -> m0 c
 runRecursion act algebra = runReaderT (unRecT act) algebra
 
-type RecurC nb mb m0 xb p r =
+type RecurC nb mb xb p r =
   ( Monad mb
-  , m0 ~ UnliftN (Succ nb) mb
-  , Monad m0
-  , LiftN nb (RecT p r mb xb m0) mb
+  , Monad (UnliftN (Succ nb) mb)
+  , LiftN nb (RecT p r mb xb (UnliftN (Succ nb) mb)) mb
   ) :: Constraint
 
-recur :: forall nb mb m0 xb p r.
-  RecurC nb mb m0 xb p r => p -> r -> mb xb
+recur :: forall nb mb xb p r.
+  RecurC nb mb xb p r => p -> r -> mb xb
 recur p r = do
   algebra <- liftn @nb do RecT ask
   algebra p r
 
 data Rec
-type instance R.Algebra (R.E Rec p (Fix f) (f (Fix f)) mb xb) m0 =
+type instance R.Algebra (R.E (K nb Rec) p (Fix f) (f (Fix f)) mb xb) m0 =
   p -> Fix f -> f (Fix f) -> mb xb
-type instance R.MonadT (R.E Rec p (Fix f) (f (Fix f)) mb xb) m0 = RecT p (Fix f) mb xb m0
+type instance R.MonadT (R.E (K nb Rec) p (Fix f) (f (Fix f)) mb xb) m0 = RecT p (Fix f) mb xb m0
 
-instance (r ~ Fix f, a ~ f (Fix f)) => R.Recursion (R.E Rec p r a mb xb) m0 where
+instance (r ~ Fix f, a ~ f (Fix f)) => R.Recursion (R.E (K nb Rec) p r a mb xb) m0 where
   runRecursion act algebra = runRecursion act (\p r@(Fix a) -> algebra p r a)
 
-instance RecurC nb mb m0 xb p r => KFn (R.RecE nb Rec p r mb xb) where
+instance RecurC nb mb xb p r => KFn (R.RecE nb Rec p r mb xb) where
   kfn = recur @nb

@@ -36,12 +36,12 @@ import Data.Hashable
 newtype Ref f = Ref (Free f (G.Ref (Ref f)))
 
 type M0 nb mb = Unlift (Unlift (UnliftN nb mb))
-type M1 nb mb xb p f = F.RecT p f (G.Ref (Ref f)) (mb xb) (M0 nb mb)
+type M1 nb mb xb p f = F.RecT p f (G.Ref (Ref f)) mb xb (M0 nb mb)
 type M2 nb mb xb p f = G.RecT p (Ref f) mb xb (M1 nb mb xb p f)
 
 runRecursion :: forall n0 nb mb xb p f c.
   ( G.RunRecursionC (M1 nb mb xb p f) (Succ n0)
-  , F.RecurC n0 (Succ nb) mb xb p f (G.Ref (Ref f))
+  , F.RecurC (Succ nb) mb xb p f (G.Ref (Ref f))
   , G.RecurC (Succ n0) nb mb xb p (Ref f)
   , Functor f
   )
@@ -50,10 +50,10 @@ runRecursion :: forall n0 nb mb xb p f c.
   -> M0 nb mb c
 runRecursion act algebra = do
   F.runRecursion
-    do G.runRecursion @(Succ n0) act \p gr r@(Ref free) -> F.recur @n0 @(Succ nb) p free
+    do G.runRecursion @(Succ n0) act \p gr r@(Ref free) -> F.recur @(Succ nb) p free
     do \p gr -> G.recur @(Succ n0) @nb p gr
     do \p free ffree -> algebra p (Ref free) (fmap Ref ffree)
 
 recur :: forall n0 nb mb xb p f.
-  F.RecurC n0 (Succ nb) mb xb p f (G.Ref (Ref f)) => p -> Ref f -> mb xb
-recur p r@(Ref free) = F.recur @n0 @(Succ nb) p free
+  F.RecurC (Succ nb) mb xb p f (G.Ref (Ref f)) => p -> Ref f -> mb xb
+recur p r@(Ref free) = F.recur @(Succ nb) p free

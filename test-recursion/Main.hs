@@ -358,13 +358,13 @@ iorefg2 val1 val2 = do
   RecDag.buildTopo 6 $ BoolIntFormula' $ And nleqv1 leqnv1
 
 data RecIntBool
-type instance R.Algebra (R.E RecIntBool p IntBoolFormula IntBoolFormulaBody mb xb) m0 =
+type instance R.Algebra (R.E (K nb RecIntBool) p IntBoolFormula IntBoolFormulaBody mb xb) m0 =
   p -> IntBoolFormula -> IntBoolFormulaBody -> mb xb
-type instance R.MonadT (R.E RecIntBool p IntBoolFormula IntBoolFormulaBody mb xb) m0 =
+type instance R.MonadT (R.E (K nb RecIntBool) p IntBoolFormula IntBoolFormulaBody mb xb) m0 =
   RecFix.RecT p IntBoolFormula mb xb m0
 instance
   (r ~ IntBoolFormula, a ~ IntBoolFormulaBody)
-  => R.Recursion (R.E RecIntBool p r a mb xb) m0
+  => R.Recursion (R.E (K nb RecIntBool) p r a mb xb) m0
  where
   runRecursion act algebra = RecFix.runRecursion act (\p r@(IntBoolFormula a) -> algebra p r a)
 instance
@@ -374,13 +374,13 @@ instance
   kfn = RecFix.recur @nb
 
 data RecBoolInt
-type instance R.Algebra (R.E RecBoolInt p BoolIntFormula BoolIntFormulaBody mb xb) m0 =
+type instance R.Algebra (R.E (K nb RecBoolInt) p BoolIntFormula BoolIntFormulaBody mb xb) m0 =
   p -> BoolIntFormula -> BoolIntFormulaBody -> mb xb
-type instance R.MonadT (R.E RecBoolInt p BoolIntFormula BoolIntFormulaBody mb xb) m0 =
+type instance R.MonadT (R.E (K nb RecBoolInt) p BoolIntFormula BoolIntFormulaBody mb xb) m0 =
   RecFix.RecT p BoolIntFormula mb xb m0
 instance
   (r ~ BoolIntFormula, a ~ BoolIntFormulaBody)
-  => R.Recursion (R.E RecBoolInt p r a mb xb) m0
+  => R.Recursion (R.E (K nb RecBoolInt) p r a mb xb) m0
  where
   runRecursion act algebra = RecFix.runRecursion act (\p r@(BoolIntFormula a) -> algebra p r a)
 instance
@@ -391,36 +391,40 @@ instance
 
 type RecIntBool'T p = RecDag.RecT p IntBoolFormula'
 data (RecIntBool' n0)
-type instance R.Algebra (R.E (RecIntBool' n0) p IntBoolFormula'Ref IntBoolFormula'Body mb xb) m0 =
-  p -> IntBoolFormula'Ref -> IntBoolFormula'Body -> mb xb
-type instance R.MonadT (R.E (RecIntBool' n0) p IntBoolFormula'Ref IntBoolFormula'Body mb xb) m0 =
-  RecIntBool'T p mb xb m0
+type instance R.Algebra
+  (R.E (K nb (RecIntBool' n0)) p IntBoolFormula'Ref IntBoolFormula'Body mb xb) m0
+  = p -> IntBoolFormula'Ref -> IntBoolFormula'Body -> mb xb
+type instance R.MonadT
+  (R.E (K nb (RecIntBool' n0)) p IntBoolFormula'Ref IntBoolFormula'Body mb xb) m0
+  = RecIntBool'T p mb xb m0
 instance
   (r ~ IntBoolFormula'Ref, a ~ IntBoolFormula'Body, RecDag.RunRecursionC m0 n0)
-  => R.Recursion (R.E (RecIntBool' n0) p r a mb xb) m0
+  => R.Recursion (R.E (K nb (RecIntBool' n0)) p r a mb xb) m0
  where
   runRecursion act algebra =
     RecDag.runRecursion @n0 act (\p r (IntBoolFormula' a) -> algebra p r a)
 instance
-  RecDag.RecurC n0 nb mb m0 xb p IntBoolFormula'
+  RecDag.RecurC n0 nb mb xb p IntBoolFormula'
   => KFn (R.RecE nb (RecIntBool' n0) p IntBoolFormula'Ref mb xb)
  where
   kfn = RecDag.recur @n0 @nb
 
 type RecBoolInt'T p = RecDag.RecT p BoolIntFormula'
 data (RecBoolInt' n0)
-type instance R.Algebra (R.E (RecBoolInt' n0) p BoolIntFormula'Ref BoolIntFormula'Body mb xb) m0 =
-  p -> BoolIntFormula'Ref -> BoolIntFormula'Body -> mb xb
-type instance R.MonadT (R.E (RecBoolInt' n0) p BoolIntFormula'Ref BoolIntFormula'Body mb xb) m0 =
-  RecBoolInt'T p mb xb m0
+type instance R.Algebra
+  (R.E (K nb (RecBoolInt' n0)) p BoolIntFormula'Ref BoolIntFormula'Body mb xb) m0
+  = p -> BoolIntFormula'Ref -> BoolIntFormula'Body -> mb xb
+type instance R.MonadT
+  (R.E (K nb (RecBoolInt' n0)) p BoolIntFormula'Ref BoolIntFormula'Body mb xb) m0
+  = RecBoolInt'T p mb xb m0
 instance
   (r ~ BoolIntFormula'Ref, a ~ BoolIntFormula'Body, RecDag.RunRecursionC m0 n0)
-  => R.Recursion (R.E (RecBoolInt' n0) p r a mb xb) m0
+  => R.Recursion (R.E (K nb (RecBoolInt' n0)) p r a mb xb) m0
  where
   runRecursion act algebra =
     RecDag.runRecursion @n0 act (\p r (BoolIntFormula' a) -> algebra p r a)
 instance
-  RecDag.RecurC n0 nb mb m0 xb p BoolIntFormula'
+  RecDag.RecurC n0 nb mb xb p BoolIntFormula'
   => KFn (R.RecE nb (RecBoolInt' n0) p BoolIntFormula'Ref mb xb)
  where
   kfn = RecDag.recur @n0 @nb
@@ -477,7 +481,7 @@ type instance Definition BoolIntD' =
   :+: Follow D0
 
 type TestSingleCata d t =
-  R.E1 [f|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t Bool CIO
+  R.E1 [k|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t Bool CIO
 
 testSingle :: forall d t.
   ( RecAppAlg d (R.RecurMonad1 t Bool CIO)
@@ -496,9 +500,9 @@ testSingle tag wantedResult wantedCount r = do
     error do "testSingle count " ++ tag ++ " " ++ show wantedCount ++ " != " ++ show count
 
 type TestMutualCata2 d t2 t1 =
-  R.E2_2 [f|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t2 Bool t1 Int CIO
+  R.E2_2 [k|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t2 Bool t1 Int CIO
 type TestMutualCata1 d t2 t1 =
-  R.E2_1 [f|recInt|] () [f|int|] (IntFormula [f|bool|] [f|int|]) t2 Bool t1 Int CIO
+  R.E2_1 [k|recInt|] () [f|int|] (IntFormula [f|bool|] [f|int|]) t2 Bool t1 Int CIO
 
 testMutual :: forall d t2 t1.
   ( RecAppAlg d (R.RecurMonad2 t2 Bool t1 Int CIO)
@@ -527,7 +531,7 @@ main = do
     do R.unRecurMonad1 do RecFix.recur @(Succ Zero) () (fix1_val False)
     do \_ (Fix a) -> boolAlgebraSimple @DSimple a
 
-  True <- R.runRecursion @(R.E RecFix.Rec _ _ _ _ _)
+  True <- R.runRecursion @(R.E (K (Succ Zero) RecFix.Rec) _ _ _ _ _)
     do R.unRecurMonad1 do kfn @(GoBool DSimple _) () (fix1_val False)
     do \_ _ -> boolAlgebraSimple @DSimple
 
