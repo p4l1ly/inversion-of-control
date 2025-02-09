@@ -32,7 +32,7 @@ import qualified InversionOfControl.Recursion as R
 import Data.Kind
 
 newtype RecT p r mb xb m0 x =
-  RecT { unRecT :: ReaderT (p -> r -> mb xb) m0 x }
+  RecT (ReaderT (p -> r -> mb xb) m0 x)
   deriving newtype (Functor, Applicative, Monad)
 type instance Unlift (RecT p r mb xb m0) = m0
 instance MonadTrans (RecT p r mb xb) where
@@ -42,7 +42,7 @@ runRecursion
   :: RecT p r mb xb m0 c
   -> (p -> r -> mb xb)
   -> m0 c
-runRecursion act algebra = runReaderT (unRecT act) algebra
+runRecursion (RecT act) algebra = runReaderT act algebra
 
 type RecurC nb mb xb p r =
   ( Monad mb
@@ -66,3 +66,22 @@ instance (r ~ Fix f, a ~ f (Fix f)) => R.Recursion (R.E (K nb Rec) p r a mb xb) 
 
 instance RecurC nb mb xb p r => KFn (R.RecE nb Rec p r mb xb) where
   kfn = recur @nb
+
+runMergingRecursion_Fix ::
+  Monad mb
+  => RecT p (Fix f) mb xb m0 c
+  -> (p -> Fix f -> f (Fix f) -> mb p')
+  -> (p' -> mb xb)
+  -> m0 c
+runMergingRecursion_Fix act coalgebra algebra = runRecursion act
+  (\p r@(Fix fr) -> coalgebra p r fr >>= algebra)
+
+descend_Fix :: forall nb mb xb p r.
+  RecurC nb mb xb p r => p -> r -> mb xb
+descend_Fix = recur @nb
+
+finishDescend :: Applicative mb => mb ()
+finishDescend = pure ()
+
+ascend_Fix :: Applicative mb => xb -> mb xb
+ascend_Fix = pure

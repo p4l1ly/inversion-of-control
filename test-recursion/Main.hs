@@ -20,6 +20,8 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TupleSections #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
 -- {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file -ddump-file-prefix=/tmp/foo #-}
 
@@ -47,6 +49,7 @@ import InversionOfControl.GMonadTrans
 import Data.Kind
 import Data.Functor.Classes
 import Control.Monad
+import Data.Foldable
 
 data BoolFormula int bool =
   And bool bool
@@ -584,27 +587,36 @@ main = do
   iorefg2_10 <- iorefg2 True False
   testMutual @BoolIntD' "iorefg2_True_False" False 2 iorefg2_10
 
-  -- Test two-way recursion (the mutual one is unsupported, if even reasonably generally
-  -- possible)
+  -- Test two-way recursion (the mutual one is unsupported). An example for DAG and Fix is given
+  -- but it is not yet unified via classes.
 
   2 <- RecDag.runMergingRecursion_Fix @Zero
-    do RecDag.mergeAndRecur_Fix @Zero (Sum 1) iorefg1_True
-    do \(Sum p) _ fr -> RecDag.MergingA $ Compose do
-        let RecDag.MergingA (Compose bef) =
-              for fr \child -> RecDag.MergingA $ Compose do
-                let RecDag.MergingA (Compose bef) =
-                      RecDag.mergeAndRecur_Fix @Zero (Sum 1) child
-                bef
-        aft <- bef
-        return do (fromEnum (p > 1) +) . sum <$> aft
+    do R.unRecurMonad1 do
+        r <- RecDag.descend_Fix @Zero @(Succ Zero) (Sum 1) iorefg1_True
+        RecDag.finishDescend @Zero @(Succ Zero)
+        RecDag.ascend_Fix @Zero @(Succ Zero) r
+    do \(Sum p) _ fr -> do
+        (p,) <$> for fr \child -> RecDag.descend_Fix @Zero @(Succ Zero) (Sum 1) child
+    do \(p, fr) -> do
+        (sum -> childN) <- for fr do RecDag.ascend_Fix @Zero @(Succ Zero)
+        return if p > 1 then childN + 1 else childN
 
-  -- Test recursion of composition of IORefGraph and Free
+  2 <- RecFix.runMergingRecursion_Fix
+    do R.unRecurMonad1 do
+        r <- RecFix.descend_Fix @(Succ Zero) (Sum 1) (fix1_val True)
+        RecFix.finishDescend
+        RecFix.ascend_Fix r
+    do \(Sum p) _ fr -> do
+        (p,) <$> for fr \child -> RecFix.descend_Fix @(Succ Zero) (Sum 1) child
+    do \(p, fr) -> do
+        (sum -> childN) <- for fr do RecFix.ascend_Fix
+        return if p > 1 then childN + 1 else childN
+
+  -- Test composition of IORefGraph and Free
 
   iorefgf1_True <- iorefgf1_val True
   testSingle @DagFreeD "iorefgf1_True" False 1 iorefgf1_True
   iorefgf1_False <- iorefgf1_val False
   testSingle @DagFreeD "iorefgf1_False" True 1 iorefgf1_False
-
-  -- TODO two-way recursion of RecDagFree
 
   return ()

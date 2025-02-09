@@ -41,8 +41,7 @@ newtype Ref f = Ref (Free f (G.Ref (Ref f))) deriving Show
 type M1 mb xb p f m0 = F.RecT p f (G.Ref (Ref f)) mb xb m0
 type M2 mb xb p f m0 = G.RecT p (Ref f) mb xb (M1 mb xb p f m0)
 
-newtype RecT p f mb xb m0 c = RecT
-  { unRecT :: M2 mb xb p f m0 c }
+newtype RecT p f mb xb m0 c = RecT (M2 mb xb p f m0 c)
   deriving newtype (Functor, Applicative, Monad)
 type instance Unlift (RecT p f mb xb m0) = M2 mb xb p f m0
 instance {-# OVERLAPS #-} Monad m0 => GMonadTrans (RecT p f mb xb m0) where
@@ -59,9 +58,9 @@ runRecursion :: forall n0 nb p f mb xb m0 c.
   => RecT p f mb xb m0 c
   -> (p -> Ref f -> f (Ref f) -> mb xb)
   -> m0 c
-runRecursion act algebra = do
+runRecursion (RecT act) algebra = do
   F.runRecursion
-    do G.runRecursion @(Succ n0) (unRecT act) \p gr r@(Ref free) -> do
+    do G.runRecursion @(Succ n0) act \p gr r@(Ref free) -> do
         -- The naive implementation would be `F.recur @(Succ nb) p free` but then we would never
         -- get references to G.Ref in the algebra. We want to pass `Pure gr` instead of its content
         -- if we are directly under it.
@@ -89,22 +88,22 @@ instance
 instance RecurC nb mb xb p f => KFn (R.RecE nb (Rec n0) p (Ref f) mb xb) where
   kfn = recur @n0 @nb
 
-type RunMergingRecursionC n0 p f xb m0 =
-  ( G.RunMergingRecursionC n0 m0  -- TODO (Succ n0) (M1 mb xb p f m0)
-  , G.MergeAndRecurC n0 p m0  -- TODO (Succ n0) (M1 mb xb p f m0)
-  , Functor f
-  ) :: Constraint
-
-runMergingRecursion :: forall n0 p f xb m0 c.
-  RunMergingRecursionC n0 p f xb m0
-  => G.MergingA p (Ref f) xb m0 c
-  -> (p -> Ref f -> f (Ref f) -> G.MergingA p (Ref f) xb m0 xb)
-  -> m0 c
-runMergingRecursion act algebra = do
-  G.runMergingRecursion @n0 act \p gr (Ref free) ->
-    case free of
-      Pure gr' -> G.mergeAndRecur @n0 p gr'
-      Free ffree -> algebra p (Ref (Pure gr)) (fmap Ref ffree)
+-- type RunMergingRecursionC n0 p f xb m0 =
+--   ( G.RunMergingRecursionC n0 m0  -- TODO (Succ n0) (M1 mb xb p f m0)
+--   , G.MergeAndRecurC n0 p m0  -- TODO (Succ n0) (M1 mb xb p f m0)
+--   , Functor f
+--   ) :: Constraint
+-- 
+-- runMergingRecursion :: forall n0 p f xb m0 c.
+--   RunMergingRecursionC n0 p f xb m0
+--   => G.MergingA p (Ref f) xb m0 c
+--   -> (p -> Ref f -> f (Ref f) -> G.MergingA p (Ref f) xb m0 xb)
+--   -> m0 c
+-- runMergingRecursion act algebra = do
+--   G.runMergingRecursion @n0 act \p gr (Ref free) ->
+--     case free of
+--       Pure gr' -> G.mergeAndRecur @n0 p gr'
+--       Free ffree -> algebra p (Ref (Pure gr)) (fmap Ref ffree)
   -- F.runRecursion
   --   do G.runRecursion @(Succ n0) (unRecT act) \p gr r@(Ref free) -> do
   --       -- The naive implementation would be `F.recur @(Succ nb) p free` but then we would never

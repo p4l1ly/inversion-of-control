@@ -43,7 +43,8 @@ import InversionOfControl.GMonadTrans
 import GHC.TypeLits (Symbol)
 import Data.Kind
 
-data Ref x = Ref (StableName (IORef (Word, x))) (IORef (Word, x))
+type RefName x = StableName (IORef (Word, x))
+data Ref x = Ref (RefName x) (IORef (Word, x))
 
 instance Show (Ref x) where
   show (Ref name _) = '@' : show (hashStableName name)
@@ -87,24 +88,24 @@ buildFree free = do
     return (topo', r)
 
 newtype RecT p a mb xb m0 x = RecT
-  { unRecT :: ReaderT
+  ( ReaderT
       ( p -> Ref a -> a -> mb xb
-      , IORef (HM.HashMap (p, StableName (IORef (Word, a))) xb)
+      , IORef (HM.HashMap (p, RefName a) xb)
       )
       m0 x
-  }
+  )
   deriving newtype (Functor, Applicative, Monad)
 type instance Unlift (RecT p a mb xb m0) = m0
 instance MonadTrans (RecT p a mb xb) where
   lift = RecT . lift
 
-type RunRecursionC m0 n0 = (Monad m0, LiftN n0 IO m0)
+type RunRecursionC m0 n0 = (Monad m0, LiftN n0 IO m0) :: Constraint
 
 runRecursion :: forall n0 p a mb xb m0 x.
   RunRecursionC m0 n0 => RecT p a mb xb m0 x -> (p -> Ref a -> a -> mb xb) -> m0 x
-runRecursion act algebra = do
+runRecursion (RecT act) algebra = do
   cacheRef <- liftn @n0 do newIORef HM.empty
-  runReaderT (unRecT act) (algebra, cacheRef)
+  runReaderT act (algebra, cacheRef)
 
 runRecursion_Fix :: forall n0 p f mb xb m0 x.
   RunRecursionC m0 n0
@@ -117,16 +118,16 @@ runRecursion_Fix act algebra =
 type M0 nb mb = UnliftN (Succ nb) mb
 type RecurC n0 nb mb xb p a =
   ( Monad mb
-  , Monad (UnliftN (Succ nb) mb)
-  , LiftN nb (RecT p a mb xb (UnliftN (Succ nb) mb)) mb
-  , LiftN n0 IO (UnliftN (Succ nb) mb)
+  , Monad (M0 nb mb)
+  , LiftN nb (RecT p a mb xb (M0 nb mb)) mb
+  , LiftN n0 IO (M0 nb mb)
   , Eq p, Hashable p
   ) :: Constraint
 
 recur :: forall n0 nb mb xb p a.
   RecurC n0 nb mb xb p a => p -> Ref a -> mb xb
 recur p r@(Ref name ioref) = do
-  (algebra, cacheRef) <- liftn @nb @(RecT p a mb xb (M0 nb mb)) do RecT ask
+  (algebra, cacheRef) <- liftn @nb do RecT ask
   cache <- liftIO' $ readIORef cacheRef
   case HM.lookup (p, name) cache of
     Just b -> return b
@@ -137,7 +138,7 @@ recur p r@(Ref name ioref) = do
       return result
  where
   liftIO' :: IO x -> mb x
-  liftIO' = liftn @nb @(RecT p a mb xb (M0 nb mb)) . lift . liftn @n0
+  liftIO' = liftn @nb . lift . liftn @n0
 
 recur_Fix :: forall n0 nb mb xb p f.
   RecurC n0 nb mb xb p (f (RefFix f)) => p -> RefFix f -> mb xb
@@ -163,58 +164,77 @@ instance
 
 
 type MergingTopos p a = (Word, A.Array Word (IORef (HM.HashMap (Ref a) p)))
-type MergingAlgebrae p a xb m = HM.HashMap
-  (StableName (IORef (Word, a)))
-  (Either xb (MergingM p a xb m xb))
+type MergingCache p' a xb = HM.HashMap (RefName a) (Either p' xb)
 
-data MergingEnv p a xb m = MergingEnv
-  { algebrae :: IORef (MergingAlgebrae p a xb m)
+data MergingEnv p p' a mb xb = MergingEnv
+  { cache :: IORef (MergingCache p' a xb)
   , topos :: IORef (MergingTopos p a)
+  , coalgebra :: p -> Ref a -> a -> mb p'
+  , algebra :: p' -> mb xb
   }
 
-type MergingM p a xb m = ReaderT (MergingEnv p a xb m) m
-newtype MergingA p a xb m c = MergingA (Compose (MergingM p a xb m) (MergingM p a xb m) c)
+newtype MergingRecT p p' a mb xb m0 c = MergingRecT
+  { unMergingRecT :: ReaderT (MergingEnv p p' a mb xb) m0 c }
+  deriving newtype (Functor, Applicative, Monad)
+type instance Unlift (MergingRecT p p' a mb xb m0) = m0
+instance MonadTrans (MergingRecT p p' a mb xb) where
+  lift = MergingRecT . lift
 
-deriving instance Functor m => Functor (MergingA p a xb m)
-deriving instance Applicative m => Applicative (MergingA p a xb m)
+type RunMergingRecursionC n0 m0 = (Monad m0, LiftN n0 IO m0) :: Constraint
 
-type RunMergingRecursionC n m = (Monad m, LiftN n IO m) :: Constraint
-
-runMergingRecursion :: forall n p a xb m c.
-  RunMergingRecursionC n m
-  => MergingA p a xb m c
-  -> (p -> Ref a -> a -> MergingA p a xb m xb)
-  -> m c
-runMergingRecursion (MergingA (Compose bef)) algebra = do
-  topos ∷ IORef (MergingTopos p a) <- liftn @n do
+runMergingRecursion :: forall n0 p p' a mb xb m0 c.
+  RunMergingRecursionC n0 m0
+  => MergingRecT p p' a mb xb m0 c
+  -> (p -> Ref a -> a -> mb p')
+  -> (p' -> mb xb)
+  -> m0 c
+runMergingRecursion (MergingRecT act) coalgebra algebra = do
+  topos ∷ IORef (MergingTopos p a) <- liftn @n0 do
     elems' <- replicateM 4 do newIORef HM.empty
     newIORef (4, A.listArray (0, 3) elems')
-  algebrae ∷ IORef (MergingAlgebrae p a xb m) <- liftn @n $ newIORef (HM.empty)
+  cache ∷ IORef (MergingCache p' a xb) <- liftn @n0 $ newIORef (HM.empty)
 
-  aft :: MergingM p a xb m c <- runReaderT bef MergingEnv{algebrae, topos}
+  let env = MergingEnv{cache, topos, coalgebra, algebra}
+  runReaderT act env
 
-  (sz, arr) <- liftn @n do readIORef topos
-  forM_ [sz - 1, sz - 2 .. 0] \i -> do
-    topo <- liftn @n do readIORef (arr A.! i)
-    forM_ (HM.toList topo) \(r@(Ref name ioref), p) -> do
-      (_, f) <- liftn @n do readIORef ioref
-      let MergingA (Compose bef) = algebra p r f
-      aft <- runReaderT bef MergingEnv{algebrae, topos}
-      liftn @n do modifyIORef' algebrae do HM.insert name (Right aft)
+runMergingRecursion_Fix :: forall n0 p p' f mb xb m0 c.
+  RunMergingRecursionC n0 m0
+  => MergingRecT p p' (f (RefFix f)) mb xb m0 c
+  -> (p -> RefFix f -> f (RefFix f) -> mb p')
+  -> (p' -> mb xb)
+  -> m0 c
+runMergingRecursion_Fix act coalgebra algebra = runMergingRecursion @n0 act
+  do \p r fr -> coalgebra p (RefFix r) fr
+  algebra
 
-  runReaderT aft MergingEnv{algebrae, topos}
-
-type MergeAndRecurC n p m =
-  ( Monad m
+type MergeAndRecurC n0 nb mb xb p p' a =
+  ( Monad mb
+  , Monad (M0 nb mb)
+  , LiftN nb (MergingRecT p p' a mb xb (M0 nb mb)) mb
+  , LiftN n0 IO (M0 nb mb)
   , Semigroup p
-  , LiftN n IO m
   ) :: Constraint
 
-mergeAndRecur :: forall n p a xb m.
-  MergeAndRecurC n p m ⇒ p -> Ref a -> MergingA p a xb m xb
-mergeAndRecur p r@(Ref name ioref) = MergingA $ Compose do
-  MergingEnv{algebrae, topos} <- ask
-  liftn @(Succ n) do
+finishDescend :: forall n0 nb mb xb p p' a.
+  MergeAndRecurC n0 nb mb xb p p' a => mb ()
+finishDescend = do
+  MergingEnv{cache, topos, coalgebra, algebra} <- liftn @nb do MergingRecT ask
+  (sz, arr) <- liftIO' do readIORef topos
+  forM_ [sz - 1, sz - 2 .. 0] \i -> do
+    topo <- liftIO' do readIORef (arr A.! i)
+    forM_ (HM.toList topo) \(r@(Ref name ioref), p) -> do
+      (_, a) <- liftIO' do readIORef ioref
+      p' <- coalgebra p r a
+      liftIO' do modifyIORef' cache do HM.insert name (Left p')
+ where
+  liftIO' :: IO x -> mb x
+  liftIO' = liftn @nb @(MergingRecT p p' a mb xb (M0 nb mb)) . lift . liftn @n0
+
+descend :: forall n0 nb mb xb p p' a.
+  MergeAndRecurC n0 nb mb xb p p' a => p -> Ref a -> mb (RefName a)
+descend p r@(Ref name ioref) = do
+  MergingEnv{cache, topos, coalgebra, algebra} <- liftn @nb do MergingRecT ask
+  liftIO' do
     (n, _) <- readIORef ioref
     (sz, arr) <- readIORef topos
     let sz':_ = dropWhile (<= n) $ iterate (*2) sz
@@ -228,28 +248,31 @@ mergeAndRecur p r@(Ref name ioref) = MergingA $ Compose do
       else
         return arr
     modifyIORef' (arr' A.! n) (HM.insertWith (<>) r p)
+  return name
+ where
+  liftIO' :: IO x -> mb x
+  liftIO' = liftn @nb @(MergingRecT p p' a mb xb (M0 nb mb)) . lift . liftn @n0
 
-  return do
-    algebraeV <- liftn @(Succ n) do readIORef algebrae
-    case HM.lookup name algebraeV of
-      Just (Right algebra) -> do
-        b <- algebra
-        liftn @(Succ n) do writeIORef algebrae $ HM.insert name (Left b) algebraeV
-        return b
-      Just (Left b) -> return b
-      Nothing -> error "Impossible"
+descend_Fix :: forall n0 nb mb xb p p' f.
+  MergeAndRecurC n0 nb mb xb p p' (f (RefFix f)) => p -> RefFix f -> mb (RefName (f (RefFix f)))
+descend_Fix p (RefFix r) = descend @n0 @nb p r
 
-runMergingRecursion_Fix :: forall n p f xb m c.
-  (Monad m, LiftN n IO m)
-  => MergingA p (f (RefFix f)) xb m c
-  -> (p -> RefFix f -> f (RefFix f) -> MergingA p (f (RefFix f)) xb m xb)
-  -> m c
-runMergingRecursion_Fix act algebra =
-  runMergingRecursion @n act \p r fr -> algebra p (RefFix r) fr
+ascend :: forall n0 nb mb xb p p' a.
+  MergeAndRecurC n0 nb mb xb p p' a => RefName a -> mb xb
+ascend name = do
+  MergingEnv{cache, topos, coalgebra, algebra} <- liftn @nb do MergingRecT ask
+  cacheVal <- liftIO' do readIORef cache
+  case HM.lookup name cacheVal of
+    Just (Left p') -> do
+      xb <- algebra p'
+      liftIO' do writeIORef cache $ HM.insert name (Right xb) cacheVal
+      return xb
+    Just (Right xb) -> return xb
+    Nothing -> error "not visited in descend"
+ where
+  liftIO' :: IO x -> mb x
+  liftIO' = liftn @nb @(MergingRecT p p' a mb xb (M0 nb mb)) . lift . liftn @n0
 
-mergeAndRecur_Fix :: forall n p f xb m.
-  ( Monad m
-  , Semigroup p
-  , LiftN n IO m
-  ) => p -> RefFix f -> MergingA p (f (RefFix f)) xb m xb
-mergeAndRecur_Fix p (RefFix r) = mergeAndRecur @n p r
+ascend_Fix :: forall n0 nb mb xb p p' f.
+  MergeAndRecurC n0 nb mb xb p p' (f (RefFix f)) => RefName (f (RefFix f)) -> mb xb
+ascend_Fix r = ascend @n0 @nb r
