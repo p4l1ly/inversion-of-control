@@ -149,6 +149,7 @@ runCIO act = do
 
 type RunCIO d m a = E [k|runCIO|] (CIO a -> m a)
 type GoBool d m = E [k|recBool|] (() -> [f|bool|] -> m Bool)
+type GoBool0 d m = E [k|recBool0|] (() -> [f|bool0|] -> m Bool)
 type GoInt d m = E [k|recInt|] (() -> [f|int|] -> m Int)
 
 type RecAppBase d m =
@@ -225,21 +226,21 @@ type VarT = ReaderT (Word -> Bool)
 
 data VarRec k
 type instance R.Algebra
-  (R.E (K nb (VarRec k)) p (Either Word r) (f (Either Word r)) mb xb) m0
- = p -> Either Word r -> f (Either Word r) -> mb xb
+  (R.E (K nb (VarRec k)) p r (f (Either Word r)) mb xb) m0
+ = p -> r -> f (Either Word r) -> mb xb
 type instance R.MonadT
-  (R.E (K nb (VarRec k)) p (Either Word r) (f (Either Word r)) mb xb) m0
+  (R.E (K nb (VarRec k)) p r (f (Either Word r)) mb xb) m0
  = R.MonadT (R.E k p r (Compose f (Either Word) r) mb xb) m0
 instance
   ( R.Algebra (R.E k p r (Compose f (Either Word) r) mb xb) m0 ~
       (p -> r -> Compose f (Either Word) r -> mb xb)
   , R.Recursion (R.E k p r (Compose f (Either Word) r) mb xb) m0
-  ) => R.Recursion (R.E (K nb (VarRec k)) p (Either Word r) (f (Either Word r)) mb xb) m0
+  ) => R.Recursion (R.E (K nb (VarRec k)) p r (f (Either Word r)) mb xb) m0
  where
   runRecursion act algebra = R.runRecursion
     @(R.E k p r (Compose f (Either Word) r) mb xb)
     act
-    \p r (Compose fr) -> algebra p (Right r) fr
+    \p r (Compose fr) -> algebra p r fr
 
 instance
   ( KFn (E k (p -> r -> mb Bool))
@@ -306,6 +307,7 @@ type instance Definition VarFixD =
   :+: Name "lift" ()
   :+: Name "recBool" (VarRec [ks|recBool0|])
   :+: Name "lift" ()
+  :+: Name "bool0" (Fix (Compose (BoolFormula Int) (Either Word)))
   :+: Name "bool" (Either Word (Fix (Compose (BoolFormula Int) (Either Word))))
   :+: Follow D0
 
@@ -316,6 +318,7 @@ type instance Definition VarDagD =
   :+: Name "lift" ()
   :+: Name "recBool" (VarRec [ks|recBool0|])
   :+: Name "lift" ()
+  :+: Name "bool0" (RecDag.RefFix (Compose (BoolFormula Int) (Either Word)))
   :+: Name "bool" (Either Word (RecDag.RefFix (Compose (BoolFormula Int) (Either Word))))
   :+: Follow D0
 
@@ -507,18 +510,20 @@ testMutual tag wantedResult wantedCount r = do
     error do "testSingle count " ++ tag ++ " " ++ show wantedCount ++ " != " ++ show count
 
 type TestSingleVarCata d t =
-  R.E1 [k|recBool|] () [f|bool|] (BoolFormula [f|int|] [f|bool|]) t Bool (VarT CIO)
+  R.E1 [k|recBool|] () [f|bool0|] (BoolFormula [f|int|] [f|bool|]) t Bool (VarT CIO)
+type VarMB t = R.RecurMonad1 t Bool (VarT CIO)
 
-testSingleVar :: forall d t.
-  ( RecAppAlg d (R.RecurMonad1 t Bool (VarT CIO))
+testSingleVar :: forall d t nb.
+  ( RecAppAlg d (VarMB t)
   , R.BasicRecursion1C (TestSingleVarCata d t) (VarT CIO)
-  ) => String -> Bool -> Int -> (Word -> Bool) -> [f|bool|] -> IO ()
+  , KFn (GoBool0 d (VarMB t))
+  ) => String -> Bool -> Int -> (Word -> Bool) -> [f|bool0|] -> IO ()
 testSingleVar tag wantedResult wantedCount valuation r = do
   count <- runCIO do
     runReaderT
       do
         result <- R.runRecursion @(TestSingleVarCata d t)
-          do R.unRecurMonad1 do R.cata @(GoBool d _) r
+          do R.unRecurMonad1 do R.cata @(GoBool0 d _) r
           do \_ _ -> boolAlgebra @d
         when (wantedResult /= result) do
           error do "testSingle result " ++ tag ++ " " ++ show wantedResult ++ " != " ++ show result
@@ -555,8 +560,8 @@ main = do
   testSingle @FixD "fix1_true" False 2 (fix1_val True)
   testSingle @FixD "fix1_false" True 2 (fix1_val False)
 
-  testSingleVar @VarFixD "fix1_var_true" False 2 (\0 -> True) (Right fix1_var)
-  testSingleVar @VarFixD "fix1_var_false" True 2 (\0 -> False) (Right fix1_var)
+  testSingleVar @VarFixD "fix1_var_true" False 2 (\0 -> True) fix1_var
+  testSingleVar @VarFixD "fix1_var_false" True 2 (\0 -> False) fix1_var
 
   -- Test recursion of Free
 
@@ -571,8 +576,8 @@ main = do
   testSingle @DagD "iorefg1_False" True 1 iorefg1_False
 
   iorefg1_var' <- iorefg1_var
-  testSingleVar @VarDagD "iorefg1_var_true" False 1 (\0 -> True) (Right iorefg1_var')
-  testSingleVar @VarDagD "iorefg1_var_false" True 1 (\0 -> False) (Right iorefg1_var')
+  testSingleVar @VarDagD "iorefg1_var_true" False 1 (\0 -> True) iorefg1_var'
+  testSingleVar @VarDagD "iorefg1_var_false" True 1 (\0 -> False) iorefg1_var'
 
   -- Test mutual recursion of "Fix"
 
@@ -601,7 +606,7 @@ main = do
         (sum -> childN) <- for fr do RecDag.ascend_Fix @Zero @(Succ Zero)
         return if p > 1 then childN + 1 else childN
 
-  2 <- RecFix.runMergingRecursion_Fix
+  0 <- RecFix.runMergingRecursion_Fix
     do R.unRecurMonad1 do
         r <- RecFix.descend_Fix @(Succ Zero) (Sum 1) (fix1_val True)
         RecFix.finishDescend
