@@ -59,8 +59,6 @@ recur p r = do
     Pure a -> goLeaf p a
 
 data RecPure
-type instance R.Algebra (R.E (K nb RecPure) p (Free f xb) (f (Free f xb)) mb xb) m0 =
-  p -> Free f xb -> f (Free f xb) -> mb xb
 type instance R.MonadT (R.E (K nb RecPure) p (Free f xb) (f (Free f xb)) mb xb) m0 = RecT p f xb mb xb m0
 
 instance

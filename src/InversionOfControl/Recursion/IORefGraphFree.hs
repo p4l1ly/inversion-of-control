@@ -77,8 +77,6 @@ recur :: forall n0 nb mb xb p f.
 recur p r@(Ref free) = F.recur @(Succ (Succ nb)) p free
 
 data (Rec n0)
-type instance R.Algebra (R.E (K nb (Rec n0)) p (Ref f) (f (Ref f)) mb xb) m0 =
-  p -> Ref f -> f (Ref f) -> mb xb
 type instance R.MonadT (R.E (K nb (Rec n0)) p (Ref f) (f (Ref f)) mb xb) m0 =
   RecT p f mb xb m0
 instance

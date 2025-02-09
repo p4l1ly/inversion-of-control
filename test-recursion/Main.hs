@@ -225,17 +225,12 @@ type instance Definition DSimple =
 type VarT = ReaderT (Word -> Bool)
 
 data VarRec k
-type instance R.Algebra
-  (R.E (K nb (VarRec k)) p r (f (Either Word r)) mb xb) m0
- = p -> r -> f (Either Word r) -> mb xb
 type instance R.MonadT
   (R.E (K nb (VarRec k)) p r (f (Either Word r)) mb xb) m0
  = R.MonadT (R.E k p r (Compose f (Either Word) r) mb xb) m0
 instance
-  ( R.Algebra (R.E k p r (Compose f (Either Word) r) mb xb) m0 ~
-      (p -> r -> Compose f (Either Word) r -> mb xb)
-  , R.Recursion (R.E k p r (Compose f (Either Word) r) mb xb) m0
-  ) => R.Recursion (R.E (K nb (VarRec k)) p r (f (Either Word r)) mb xb) m0
+  R.Recursion (R.E k p r (Compose f (Either Word) r) mb xb) m0
+  => R.Recursion (R.E (K nb (VarRec k)) p r (f (Either Word r)) mb xb) m0
  where
   runRecursion act algebra = R.runRecursion
     @(R.E k p r (Compose f (Either Word) r) mb xb)
@@ -377,8 +372,6 @@ iorefg2 val1 val2 = do
   RecDag.buildTopo 6 $ BoolIntFormula' $ And nleqv1 leqnv1
 
 data RecIntBool
-type instance R.Algebra (R.E (K nb RecIntBool) p IntBoolFormula IntBoolFormulaBody mb xb) m0 =
-  p -> IntBoolFormula -> IntBoolFormulaBody -> mb xb
 type instance R.MonadT (R.E (K nb RecIntBool) p IntBoolFormula IntBoolFormulaBody mb xb) m0 =
   RecFix.RecT p IntBoolFormula mb xb m0
 instance
@@ -393,8 +386,6 @@ instance
   kfn = RecFix.recur @nb
 
 data RecBoolInt
-type instance R.Algebra (R.E (K nb RecBoolInt) p BoolIntFormula BoolIntFormulaBody mb xb) m0 =
-  p -> BoolIntFormula -> BoolIntFormulaBody -> mb xb
 type instance R.MonadT (R.E (K nb RecBoolInt) p BoolIntFormula BoolIntFormulaBody mb xb) m0 =
   RecFix.RecT p BoolIntFormula mb xb m0
 instance
@@ -410,9 +401,6 @@ instance
 
 type RecIntBool'T p = RecDag.RecT p IntBoolFormula'
 data (RecIntBool' n0)
-type instance R.Algebra
-  (R.E (K nb (RecIntBool' n0)) p IntBoolFormula'Ref IntBoolFormula'Body mb xb) m0
-  = p -> IntBoolFormula'Ref -> IntBoolFormula'Body -> mb xb
 type instance R.MonadT
   (R.E (K nb (RecIntBool' n0)) p IntBoolFormula'Ref IntBoolFormula'Body mb xb) m0
   = RecIntBool'T p mb xb m0
@@ -430,9 +418,6 @@ instance
 
 type RecBoolInt'T p = RecDag.RecT p BoolIntFormula'
 data (RecBoolInt' n0)
-type instance R.Algebra
-  (R.E (K nb (RecBoolInt' n0)) p BoolIntFormula'Ref BoolIntFormula'Body mb xb) m0
-  = p -> BoolIntFormula'Ref -> BoolIntFormula'Body -> mb xb
 type instance R.MonadT
   (R.E (K nb (RecBoolInt' n0)) p BoolIntFormula'Ref BoolIntFormula'Body mb xb) m0
   = RecBoolInt'T p mb xb m0

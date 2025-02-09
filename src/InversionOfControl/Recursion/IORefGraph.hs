@@ -145,8 +145,6 @@ recur_Fix :: forall n0 nb mb xb p f.
 recur_Fix p (RefFix r) = recur @n0 @nb p r
 
 data RecFix n0
-type instance R.Algebra (R.E (K nb (RecFix n0)) p (RefFix f) (f (RefFix f)) mb xb) m0 =
-  p -> RefFix f -> f (RefFix f) -> mb xb
 type instance R.MonadT (R.E (K nb (RecFix n0)) p (RefFix f) (f (RefFix f)) mb xb) m0 =
   RecT p (f (RefFix f)) mb xb m0
 

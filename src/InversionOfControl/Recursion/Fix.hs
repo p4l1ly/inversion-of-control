@@ -57,8 +57,6 @@ recur p r = do
   algebra p r
 
 data Rec
-type instance R.Algebra (R.E (K nb Rec) p (Fix f) (f (Fix f)) mb xb) m0 =
-  p -> Fix f -> f (Fix f) -> mb xb
 type instance R.MonadT (R.E (K nb Rec) p (Fix f) (f (Fix f)) mb xb) m0 = RecT p (Fix f) mb xb m0
 
 instance (r ~ Fix f, a ~ f (Fix f)) => R.Recursion (R.E (K nb Rec) p r a mb xb) m0 where
