@@ -23,21 +23,30 @@ extra-source-files: CHANGELOG.md
 library
   exposed-modules:
     InversionOfControl.TypeDict
+    InversionOfControl.TcPlugin
+    InversionOfControl.GMonadTrans
     InversionOfControl.Lift
     InversionOfControl.LiftN
-    InversionOfControl.MonadFn
-    InversionOfControl.TcPlugin
-    InversionOfControl.Recur
-    InversionOfControl.MapRecur
+    InversionOfControl.KFn
+    InversionOfControl.Recursion
+    InversionOfControl.Recursion.Pure
+    InversionOfControl.Recursion.Fix
+    InversionOfControl.Recursion.Free
+    InversionOfControl.Recursion.IORefGraph
+    InversionOfControl.Recursion.IORefGraphFree
+    -- InversionOfControl.Recursion.ArrayDag
 
   build-depends:
-    base >=4.17 && <4.18,
+    base >=4.17 && <4.21,
     mtl >=2.2.2 && <2.4,
-    template-haskell >=2.19.0.0 && <2.20,
-    containers ^>=0.6.5.1,
-    ghc >=9.4 && <9.5,
-    unordered-containers ^>=0.2.19.1,
-    hashable ^>=1.4.2.0,
+    template-haskell >=2.19.0.0 && <2.23,
+    containers >=0.6 && <0.8,
+    ghc >=9.4 && <9.11,
+    unordered-containers >=0.2.19 && < 0.2.21,
+    hashable >=1.4 && < 1.6,
+    data-fix >=0.3.4 && < 0.4,
+    free >=5.2 && < 6,
+    array >=0.5 && < 0.6,
   hs-source-dirs:   src
   default-language: Haskell2010
 
@@ -47,7 +56,7 @@ test-suite test-build-time
   hs-source-dirs:      test-build-time
   main-is:             Main.hs
   build-depends:
-    base >=4.17 && <4.18,
+    base >=4.17 && <4.21,
     inversion-of-control,
 
 test-suite test-inc-invariant
@@ -56,7 +65,7 @@ test-suite test-inc-invariant
   hs-source-dirs:      test-inc-invariant
   main-is:             Main.hs
   build-depends:
-    base >=4.17 && <4.18,
+    base >=4.17 && <4.21,
     mtl >=2.2.2 && <2.4,
     ghc-prim >=0.9.0,
     inversion-of-control,
@@ -67,6 +76,38 @@ test-suite test-cache
   hs-source-dirs:      test-cache
   main-is:             Main.hs
   build-depends:
-    base >=4.17 && <4.18,
+    base >=4.17 && <4.21,
     ghc-prim >=0.9.0,
+    inversion-of-control,
+
+test-suite test-free
+  default-language:    Haskell2010
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test-free
+  main-is:             Main.hs
+  build-depends:
+    base >=4.17 && <4.21,
+    ghc-prim >=0.9.0,
+    free >= 5 && < 6,
+    random >= 1.2 && < 1.3,
+    time >= 1.12 && < 1.13,
+    mtl >=2.2.2 && <2.4,
+    inversion-of-control,
+  other-modules:
+    FreeImpl
+    MonadImpl
+    DictImpl
+  cpp-options: -DCHURCH
+
+test-suite test-recursion
+  default-language:    Haskell2010
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test-recursion
+  main-is:             Main.hs
+  build-depends:
+    base >=4.17 && <4.21,
+    ghc-prim >=0.9.0,
+    data-fix >=0.3.4 && < 0.4,
+    free >= 5 && < 6,
+    mtl >=2.2.2 && <2.4,
     inversion-of-control,

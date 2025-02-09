@@ -1,5 +1,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -8,169 +10,170 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
--- debug
+{-# LANGUAGE UnicodeSyntax #-}
 -- {-# OPTIONS_GHC -dcore-lint #-}
 -- {-# OPTIONS_GHC -ddump-tc-trace -ddump-to-file #-}
 {-# OPTIONS_GHC -fplugin InversionOfControl.TcPlugin #-}
--- {-# OPTIONS_GHC -fplugin-opt InversionOfControl.TcPlugin:no_getK_singletonDataCon #-}
 
 module Main where
 
-import InversionOfControl.Lift
+import Data.Kind
 import InversionOfControl.MonadFn
+import InversionOfControl.Lift
 import InversionOfControl.TypeDict
 
 data Even
 data Odd
 
-instance MonadFn0 (Explicit Int Bool Even) IO where
-  monadfn0 = return . even
+instance Monad m ⇒ MonadFn (E (K Zero Even) Int Bool m) where
+  monadfn = return . even
 
-instance MonadFn0 (Explicit Int Bool Odd) IO where
-  monadfn0 = return . odd
+instance Monad m ⇒ MonadFn (E (K Zero Odd) Int Bool m) where
+  monadfn = return . odd
 
 data OptionsD
 
-type instance Definition OptionsD =
-      Name "k01" Even
-  :+: Name "k02" Even
-  :+: Name "k03" Even
-  :+: Name "k04" Even
-  :+: Name "k05" Even
-  :+: Name "k06" Even
-  :+: Name "k07" Even
-  :+: Name "k08" Even
-  :+: Name "k09" Even
-  :+: Name "k10" Even
-  :+: Name "k11" Even
-  :+: Name "k12" Even
-  :+: Name "k13" Even
-  :+: Name "k14" Even
-  :+: Name "k15" Even
-  :+: Name "k16" Even
-  :+: Name "k17" Even
-  :+: Name "k18" Even
-  :+: Name "k19" Even
-  :+: Name "k20" Even
-  :+: Name "k21" Even
-  :+: Name "k22" Even
-  :+: Name "k23" Even
-  :+: Name "k24" Even
-  :+: Name "k25" Even
-  :+: Name "k26" Even
-  :+: Name "k27" Even
-  :+: Name "k28" Even
-  :+: Name "k29" Even
-  :+: Name "k30" Even
-  :+: End
+type instance
+  Definition OptionsD =
+    Name "k01" Even
+      :+: Name "k02" Even
+      :+: Name "k03" Even
+      :+: Name "k04" Even
+      :+: Name "k05" Even
+      :+: Name "k06" Even
+      :+: Name "k07" Even
+      :+: Name "k08" Even
+      :+: Name "k09" Even
+      :+: Name "k10" Even
+      :+: Name "k11" Even
+      :+: Name "k12" Even
+      :+: Name "k13" Even
+      :+: Name "k14" Even
+      :+: Name "k15" Even
+      :+: Name "k16" Even
+      :+: Name "k17" Even
+      :+: Name "k18" Even
+      :+: Name "k19" Even
+      :+: Name "k20" Even
+      :+: Name "k21" Even
+      :+: Name "k22" Even
+      :+: Name "k23" Even
+      :+: Name "k24" Even
+      :+: Name "k25" Even
+      :+: Name "k26" Even
+      :+: Name "k27" Even
+      :+: Name "k28" Odd
+      :+: Name "k29" Odd
+      :+: Name "k30" Odd
+      :+: End
 
-main :: IO ()
+main ∷ IO ()
 main = hardToCompileFn @OptionsD
 
-data HardToCompileFnA (d :: *)
-type instance Definition (HardToCompileFnA d) =
-      Name "k01" (Inherit (Explicit Int Bool) [k|k01|])
-  :+: Name "k02" (Inherit (Explicit Int Bool) [k|k02|])
-  :+: Name "k03" (Inherit (Explicit Int Bool) [k|k03|])
-  :+: Name "k04" (Inherit (Explicit Int Bool) [k|k04|])
-  :+: Name "k05" (Inherit (Explicit Int Bool) [k|k05|])
-  :+: Name "k06" (Inherit (Explicit Int Bool) [k|k06|])
-  :+: Name "k07" (Inherit (Explicit Int Bool) [k|k07|])
-  :+: Name "k08" (Inherit (Explicit Int Bool) [k|k08|])
-  :+: Name "k09" (Inherit (Explicit Int Bool) [k|k09|])
-  :+: Name "k10" (Inherit (Explicit Int Bool) [k|k10|])
-  :+: Name "k11" (Inherit (Explicit Int Bool) [k|k11|])
-  :+: Name "k12" (Inherit (Explicit Int Bool) [k|k12|])
-  :+: Name "k13" (Inherit (Explicit Int Bool) [k|k13|])
-  :+: Name "k14" (Inherit (Explicit Int Bool) [k|k14|])
-  :+: Name "k15" (Inherit (Explicit Int Bool) [k|k15|])
-  :+: Name "k16" (Inherit (Explicit Int Bool) [k|k16|])
-  :+: Name "k17" (Inherit (Explicit Int Bool) [k|k17|])
-  :+: Name "k18" (Inherit (Explicit Int Bool) [k|k18|])
-  :+: Name "k19" (Inherit (Explicit Int Bool) [k|k19|])
-  :+: Name "k20" (Inherit (Explicit Int Bool) [k|k20|])
-  :+: Name "k21" (Inherit (Explicit Int Bool) [k|k21|])
-  :+: Name "k22" (Inherit (Explicit Int Bool) [k|k22|])
-  :+: Name "k23" (Inherit (Explicit Int Bool) [k|k23|])
-  :+: Name "k24" (Inherit (Explicit Int Bool) [k|k24|])
-  :+: Name "k25" (Inherit (Explicit Int Bool) [k|k25|])
-  :+: Name "k26" (Inherit (Explicit Int Bool) [k|k26|])
-  :+: Name "k27" (Inherit (Explicit Int Bool) [k|k27|])
-  :+: Name "k28" (Inherit (Explicit Int Bool) [k|k28|])
-  :+: Name "k29" (Inherit (Explicit Int Bool) [k|k29|])
-  :+: Name "k30" (Inherit (Explicit Int Bool) [k|k30|])
-  :+: End
+data HardToCompileFnA (d ∷ Type)
+type instance
+  Definition (HardToCompileFnA d) =
+    Name "k01" (E [k|k01|] Int Bool IO)
+      :+: Name "k02" (E [k|k02|] Int Bool IO)
+      :+: Name "k03" (E [k|k03|] Int Bool IO)
+      :+: Name "k04" (E [k|k04|] Int Bool IO)
+      :+: Name "k05" (E [k|k05|] Int Bool IO)
+      :+: Name "k06" (E [k|k06|] Int Bool IO)
+      :+: Name "k07" (E [k|k07|] Int Bool IO)
+      :+: Name "k08" (E [k|k08|] Int Bool IO)
+      :+: Name "k09" (E [k|k09|] Int Bool IO)
+      :+: Name "k10" (E [k|k10|] Int Bool IO)
+      :+: Name "k11" (E [k|k11|] Int Bool IO)
+      :+: Name "k12" (E [k|k12|] Int Bool IO)
+      :+: Name "k13" (E [k|k13|] Int Bool IO)
+      :+: Name "k14" (E [k|k14|] Int Bool IO)
+      :+: Name "k15" (E [k|k15|] Int Bool IO)
+      :+: Name "k16" (E [k|k16|] Int Bool IO)
+      :+: Name "k17" (E [k|k17|] Int Bool IO)
+      :+: Name "k18" (E [k|k18|] Int Bool IO)
+      :+: Name "k19" (E [k|k19|] Int Bool IO)
+      :+: Name "k20" (E [k|k20|] Int Bool IO)
+      :+: Name "k21" (E [k|k21|] Int Bool IO)
+      :+: Name "k22" (E [k|k22|] Int Bool IO)
+      :+: Name "k23" (E [k|k23|] Int Bool IO)
+      :+: Name "k24" (E [k|k24|] Int Bool IO)
+      :+: Name "k25" (E [k|k25|] Int Bool IO)
+      :+: Name "k26" (E [k|k26|] Int Bool IO)
+      :+: Name "k27" (E [k|k27|] Int Bool IO)
+      :+: Name "k28" (E [k|k28|] Int Bool IO)
+      :+: Name "k29" (E [k|k29|] Int Bool IO)
+      :+: Name "k30" (E [k|k30|] Int Bool IO)
+      :+: End
 
-data HardToCompileFnD (d1 :: *)
-type instance Definition (HardToCompileFnD d1) =
-      Name "k01" (MonadFn [g1|k01|] IO)
-  :+: Name "k02" (MonadFn [g1|k02|] IO)
-  :+: Name "k03" (MonadFn [g1|k03|] IO)
-  :+: Name "k04" (MonadFn [g1|k04|] IO)
-  :+: Name "k05" (MonadFn [g1|k05|] IO)
-  :+: Name "k06" (MonadFn [g1|k06|] IO)
-  :+: Name "k07" (MonadFn [g1|k07|] IO)
-  :+: Name "k08" (MonadFn [g1|k08|] IO)
-  :+: Name "k09" (MonadFn [g1|k09|] IO)
-  :+: Name "k10" (MonadFn [g1|k10|] IO)
-  :+: Name "k11" (MonadFn [g1|k11|] IO)
-  :+: Name "k12" (MonadFn [g1|k12|] IO)
-  :+: Name "k13" (MonadFn [g1|k13|] IO)
-  :+: Name "k14" (MonadFn [g1|k14|] IO)
-  :+: Name "k15" (MonadFn [g1|k15|] IO)
-  :+: Name "k16" (MonadFn [g1|k16|] IO)
-  :+: Name "k17" (MonadFn [g1|k17|] IO)
-  :+: Name "k18" (MonadFn [g1|k18|] IO)
-  :+: Name "k19" (MonadFn [g1|k19|] IO)
-  :+: Name "k20" (MonadFn [g1|k20|] IO)
-  :+: Name "k21" (MonadFn [g1|k21|] IO)
-  :+: Name "k22" (MonadFn [g1|k22|] IO)
-  :+: Name "k23" (MonadFn [g1|k23|] IO)
-  :+: Name "k24" (MonadFn [g1|k24|] IO)
-  :+: Name "k25" (MonadFn [g1|k25|] IO)
-  :+: Name "k26" (MonadFn [g1|k26|] IO)
-  :+: Name "k27" (MonadFn [g1|k27|] IO)
-  :+: Name "k28" (MonadFn [g1|k28|] IO)
-  :+: Name "k29" (MonadFn [g1|k29|] IO)
-  :+: Name "k30" (MonadFn [g1|k30|] IO)
-  :+: End
+type HardToCompileFnD (d1 ∷ Type) =
+  ( MonadFn [g1|k01|]
+  , MonadFn [g1|k02|]
+  , MonadFn [g1|k03|]
+  , MonadFn [g1|k04|]
+  , MonadFn [g1|k05|]
+  , MonadFn [g1|k06|]
+  , MonadFn [g1|k07|]
+  , MonadFn [g1|k08|]
+  , MonadFn [g1|k09|]
+  , MonadFn [g1|k10|]
+  , MonadFn [g1|k11|]
+  , MonadFn [g1|k12|]
+  , MonadFn [g1|k13|]
+  , MonadFn [g1|k14|]
+  , MonadFn [g1|k15|]
+  , MonadFn [g1|k16|]
+  , MonadFn [g1|k17|]
+  , MonadFn [g1|k18|]
+  , MonadFn [g1|k19|]
+  , MonadFn [g1|k20|]
+  , MonadFn [g1|k21|]
+  , MonadFn [g1|k22|]
+  , MonadFn [g1|k23|]
+  , MonadFn [g1|k24|]
+  , MonadFn [g1|k25|]
+  , MonadFn [g1|k26|]
+  , MonadFn [g1|k27|]
+  , MonadFn [g1|k28|]
+  , MonadFn [g1|k29|]
+  , MonadFn [g1|k30|]
+  )
+    ∷ Constraint
 
-hardToCompileFn ::
-  forall d d1.
-  ( d1 ~ HardToCompileFnA d
-  , ToConstraint (Follow (HardToCompileFnD d1))
-  ) =>
-  IO ()
+hardToCompileFn
+  ∷ ∀ d d1
+   . ( d1 ~ HardToCompileFnA d
+     , HardToCompileFnD d1
+     )
+  ⇒ IO ()
 hardToCompileFn = do
-  False <- monadfn @[g1|k01|] 5
-  False <- monadfn @[g1|k02|] 5
-  False <- monadfn @[g1|k03|] 5
-  False <- monadfn @[g1|k04|] 5
-  False <- monadfn @[g1|k05|] 5
-  False <- monadfn @[g1|k06|] 5
-  False <- monadfn @[g1|k07|] 5
-  False <- monadfn @[g1|k08|] 5
-  False <- monadfn @[g1|k09|] 5
-  False <- monadfn @[g1|k10|] 5
-  False <- monadfn @[g1|k11|] 5
-  False <- monadfn @[g1|k12|] 5
-  False <- monadfn @[g1|k13|] 5
-  False <- monadfn @[g1|k14|] 5
-  False <- monadfn @[g1|k15|] 5
-  False <- monadfn @[g1|k16|] 5
-  False <- monadfn @[g1|k17|] 5
-  False <- monadfn @[g1|k18|] 5
-  False <- monadfn @[g1|k19|] 5
-  False <- monadfn @[g1|k20|] 5
-  False <- monadfn @[g1|k21|] 5
-  False <- monadfn @[g1|k22|] 5
-  False <- monadfn @[g1|k23|] 5
-  False <- monadfn @[g1|k24|] 5
-  False <- monadfn @[g1|k25|] 5
-  False <- monadfn @[g1|k26|] 5
-  False <- monadfn @[g1|k27|] 5
-  False <- monadfn @[g1|k28|] 5
-  False <- monadfn @[g1|k29|] 5
-  False <- monadfn @[g1|k30|] 5
+  False ← monadfn @[g1|k01|] 5
+  False ← monadfn @[g1|k02|] 5
+  False ← monadfn @[g1|k03|] 5
+  False ← monadfn @[g1|k04|] 5
+  False ← monadfn @[g1|k05|] 5
+  False ← monadfn @[g1|k06|] 5
+  False ← monadfn @[g1|k07|] 5
+  False ← monadfn @[g1|k08|] 5
+  False ← monadfn @[g1|k09|] 5
+  False ← monadfn @[g1|k10|] 5
+  False ← monadfn @[g1|k11|] 5
+  False ← monadfn @[g1|k12|] 5
+  False ← monadfn @[g1|k13|] 5
+  False ← monadfn @[g1|k14|] 5
+  False ← monadfn @[g1|k15|] 5
+  False ← monadfn @[g1|k16|] 5
+  False ← monadfn @[g1|k17|] 5
+  False ← monadfn @[g1|k18|] 5
+  False ← monadfn @[g1|k19|] 5
+  False ← monadfn @[g1|k20|] 5
+  False ← monadfn @[g1|k21|] 5
+  False ← monadfn @[g1|k22|] 5
+  False ← monadfn @[g1|k23|] 5
+  False ← monadfn @[g1|k24|] 5
+  False ← monadfn @[g1|k25|] 5
+  False ← monadfn @[g1|k26|] 5
+  False ← monadfn @[g1|k27|] 5
+  True ← monadfn @[g1|k28|] 5
+  True ← monadfn @[g1|k29|] 5
+  True ← monadfn @[g1|k30|] 5
   return ()
