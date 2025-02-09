@@ -41,8 +41,8 @@ newtype Ref f = Ref (Free f (G.Ref (Ref f))) deriving Show
 type M1 mb xb p f m0 = F.RecT p f (G.Ref (Ref f)) mb xb m0
 type M2 mb xb p f m0 = G.RecT p (Ref f) mb xb (M1 mb xb p f m0)
 
-newtype RecT p f mb xb m0 x = RecT
-  { unRecT :: M2 mb xb p f m0 x }
+newtype RecT p f mb xb m0 c = RecT
+  { unRecT :: M2 mb xb p f m0 c }
   deriving newtype (Functor, Applicative, Monad)
 type instance Unlift (RecT p f mb xb m0) = M2 mb xb p f m0
 instance {-# OVERLAPS #-} Monad m0 => GMonadTrans (RecT p f mb xb m0) where
@@ -54,11 +54,11 @@ type RunRecursionC n0 nb m0 mb xb p f =
   , Functor f
   ) :: Constraint
 
-runRecursion :: forall n0 nb p f mb xb m0 x.
+runRecursion :: forall n0 nb p f mb xb m0 c.
   RunRecursionC n0 nb m0 mb xb p f
-  => RecT p f mb xb m0 x
+  => RecT p f mb xb m0 c
   -> (p -> Ref f -> f (Ref f) -> mb xb)
-  -> m0 x
+  -> m0 c
 runRecursion act algebra = do
   F.runRecursion
     do G.runRecursion @(Succ n0) (unRecT act) \p gr r@(Ref free) -> do
@@ -88,3 +88,36 @@ instance
   runRecursion act algebra = runRecursion @n0 @nb act algebra
 instance RecurC nb mb xb p f => KFn (R.RecE nb (Rec n0) p (Ref f) mb xb) where
   kfn = recur @n0 @nb
+
+type RunMergingRecursionC n0 p f xb m0 =
+  ( G.RunMergingRecursionC n0 m0  -- TODO (Succ n0) (M1 mb xb p f m0)
+  , G.MergeAndRecurC n0 p m0  -- TODO (Succ n0) (M1 mb xb p f m0)
+  , Functor f
+  ) :: Constraint
+
+runMergingRecursion :: forall n0 p f xb m0 c.
+  RunMergingRecursionC n0 p f xb m0
+  => G.MergingA p (Ref f) xb m0 c
+  -> (p -> Ref f -> f (Ref f) -> G.MergingA p (Ref f) xb m0 xb)
+  -> m0 c
+runMergingRecursion act algebra = do
+  G.runMergingRecursion @n0 act \p gr (Ref free) ->
+    case free of
+      Pure gr' -> G.mergeAndRecur @n0 p gr'
+      Free ffree -> algebra p (Ref (Pure gr)) (fmap Ref ffree)
+  -- F.runRecursion
+  --   do G.runRecursion @(Succ n0) (unRecT act) \p gr r@(Ref free) -> do
+  --       -- The naive implementation would be `F.recur @(Succ nb) p free` but then we would never
+  --       -- get references to G.Ref in the algebra. We want to pass `Pure gr` instead of its content
+  --       -- if we are directly under it.
+  --       case free of
+  --         Free ffree -> algebra p (Ref (Pure gr)) (fmap Ref ffree)
+  --         Pure gr' -> G.recur @(Succ n0) @(Succ nb) p gr'
+  --   do \p gr -> G.recur @(Succ n0) @(Succ nb) p gr
+  --   do \p free ffree -> algebra p (Ref free) (fmap Ref ffree)
+
+-- type RecurC nb mb xb p f = F.RecurC (Succ (Succ nb)) mb xb p f (G.Ref (Ref f))
+
+-- recur :: forall n0 nb mb xb p f.
+--   RecurC nb mb xb p f => p -> Ref f -> mb xb
+-- recur p r@(Ref free) = F.recur @(Succ (Succ nb)) p free

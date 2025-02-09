@@ -16,7 +16,7 @@ import Control.Monad.Reader (ReaderT)
 type family Unlift (t :: Type -> Type) :: Type -> Type
 type instance Unlift (ReaderT _ m) = m
 
-class (Monad t, Monad (Unlift t)) => GMonadTrans t where
+class GMonadTrans t where
   glift :: Unlift t a -> t a
 
 instance (MonadTrans t, m ~ Unlift (t m), Monad m) => GMonadTrans (t m) where

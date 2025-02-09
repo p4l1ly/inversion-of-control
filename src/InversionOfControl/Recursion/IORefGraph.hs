@@ -178,8 +178,10 @@ newtype MergingA p a xb m c = MergingA (Compose (MergingM p a xb m) (MergingM p 
 deriving instance Functor m => Functor (MergingA p a xb m)
 deriving instance Applicative m => Applicative (MergingA p a xb m)
 
+type RunMergingRecursionC n m = (Monad m, LiftN n IO m) :: Constraint
+
 runMergingRecursion :: forall n p a xb m c.
-  (Monad m, LiftN n IO m)
+  RunMergingRecursionC n m
   => MergingA p a xb m c
   -> (p -> Ref a -> a -> MergingA p a xb m xb)
   -> m c
@@ -198,16 +200,18 @@ runMergingRecursion (MergingA (Compose bef)) algebra = do
       (_, f) <- liftn @n do readIORef ioref
       let MergingA (Compose bef) = algebra p r f
       aft <- runReaderT bef MergingEnv{algebrae, topos}
-      algebraeV <- liftn @n do readIORef algebrae
-      liftn @n do writeIORef algebrae (HM.insert name (Right aft) algebraeV)
+      liftn @n do modifyIORef' algebrae do HM.insert name (Right aft)
 
   runReaderT aft MergingEnv{algebrae, topos}
 
-mergeAndRecur :: forall n p a xb m.
+type MergeAndRecurC n p m =
   ( Monad m
   , Semigroup p
   , LiftN n IO m
-  ) ⇒ p -> Ref a -> MergingA p a xb m xb
+  ) :: Constraint
+
+mergeAndRecur :: forall n p a xb m.
+  MergeAndRecurC n p m ⇒ p -> Ref a -> MergingA p a xb m xb
 mergeAndRecur p r@(Ref name ioref) = MergingA $ Compose do
   MergingEnv{algebrae, topos} <- ask
   liftn @(Succ n) do

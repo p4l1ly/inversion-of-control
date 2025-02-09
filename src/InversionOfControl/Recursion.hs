@@ -26,7 +26,7 @@ import Data.Kind
 type TMB = Type -> Type
 
 data E k p r a (mb :: TMB) xb
-type family Algebra e (m0 :: Type -> Type)  -- TODO quite unified => remove?
+type family Algebra e (m0 :: Type -> Type)
 type family MonadT e (m0 :: Type -> Type) :: Type -> Type
 
 class Recursion e m0 where

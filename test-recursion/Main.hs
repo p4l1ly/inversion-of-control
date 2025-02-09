@@ -442,35 +442,6 @@ instance
  where
   kfn = RecDag.recur @n0 @nb
 
--- instance
---   ( Monad mb
---   , m0 ~ UnliftN (Succ nb) mb
---   , Monad m0
---   , LiftN nb (RecIntBool'T p mb xb m0) mb
---   ) => KFn (R.RecE nb RecIntBool' p IntBoolFormula mb xb)
---  where
---   kfn p r@(IntBoolFormula fr) = do
---     algebra <- liftn @nb do RecIntBool'T ask
---     algebra p r fr
-
--- data RecBoolInt' n0
--- instance
---   KFn (RecurE nb (RecDag.Rec n0) p (RecDag.Ref BoolIntFormula') BoolIntFormula' (mb xb))
---   => KFn (RecurE nb (RecBoolInt' n0) p (RecDag.Ref BoolIntFormula') BoolIntFormula'Body (mb xb))
---   where
---   kfn algebra p r =
---     kfn @(RecurE nb (RecDag.Rec n0) p (RecDag.Ref BoolIntFormula') BoolIntFormula' (mb xb))
---       (\p r (BoolIntFormula' fr) -> algebra p r fr) p r
--- 
--- data RecIntBool' n0
--- instance
---   KFn (RecurE nb (RecDag.Rec n0) p (RecDag.Ref IntBoolFormula') IntBoolFormula' (mb xb))
---   => KFn (RecurE nb (RecIntBool' n0) p (RecDag.Ref IntBoolFormula') IntBoolFormula'Body (mb xb))
---   where
---   kfn algebra p r =
---     kfn @(RecurE nb (RecDag.Rec n0) p (RecDag.Ref IntBoolFormula') IntBoolFormula' (mb xb))
---       (\p r (IntBoolFormula' fr) -> algebra p r fr) p r
-
 data BoolIntD
 type instance Definition BoolIntD =
   Name "lift" ()
@@ -615,7 +586,7 @@ main = do
 
   -- Test two-way recursion (the mutual one is unsupported, if even reasonably generally
   -- possible)
-  
+
   2 <- RecDag.runMergingRecursion_Fix @Zero
     do RecDag.mergeAndRecur_Fix @Zero (Sum 1) iorefg1_True
     do \(Sum p) _ fr -> RecDag.MergingA $ Compose do
